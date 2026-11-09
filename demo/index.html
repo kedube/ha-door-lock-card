@@ -1,0 +1,220 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Door Lock Card – demo</title>
+<style>
+  :root {
+    --primary-text-color: #212121;
+    --secondary-text-color: #727272;
+    --primary-color: #03a9f4;
+    --card-background-color: #ffffff;
+    --ha-card-background: #ffffff;
+    --page-bg: #f0f2f5;
+    color-scheme: light;
+  }
+  :root[data-theme="dark"] {
+    --primary-text-color: #e1e1e1;
+    --secondary-text-color: #9b9b9b;
+    --card-background-color: #1c1c1e;
+    --ha-card-background: #1c1c1e;
+    --page-bg: #111214;
+    color-scheme: dark;
+  }
+  body {
+    margin: 0;
+    padding: 24px 16px 64px;
+    background: var(--page-bg);
+    color: var(--primary-text-color);
+    font-family: Roboto, system-ui, -apple-system, sans-serif;
+  }
+  header { max-width: 1240px; margin: 0 auto 20px; display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; }
+  h1 { font-size: 1.4rem; margin: 0; font-weight: 500; }
+  h2 { max-width: 1240px; margin: 32px auto 12px; font-size: 1rem; font-weight: 500; color: var(--secondary-text-color); text-transform: uppercase; letter-spacing: .06em; }
+  .grid { max-width: 1240px; margin: 0 auto; display: grid; gap: 16px; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); align-items: start; }
+  .grid.wide { grid-template-columns: repeat(auto-fill, minmax(420px, 1fr)); }
+  .controls { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+  .controls button, header button {
+    font: inherit; font-size: .8rem; padding: 5px 10px; border-radius: 8px; cursor: pointer;
+    border: 1px solid color-mix(in srgb, var(--primary-text-color) 20%, transparent);
+    background: transparent; color: var(--primary-text-color);
+  }
+  .cell > small { display: block; margin: 0 0 6px 4px; color: var(--secondary-text-color); font-size: .75rem; }
+</style>
+<script>
+  // Minimal stand-in for Home Assistant's <ha-card>.
+  customElements.define("ha-card", class extends HTMLElement {
+    constructor() {
+      super();
+      this.attachShadow({ mode: "open" }).innerHTML = `<style>:host{display:block;background:var(--ha-card-background,#fff);border-radius:12px;box-shadow:0 1px 3px rgba(0,0,0,.12),0 1px 2px rgba(0,0,0,.08);color:var(--primary-text-color)}</style><slot></slot>`;
+    }
+  });
+</script>
+<script src="../dist/door-lock-card.js"></script>
+</head>
+<body>
+<header>
+  <h1>Door Lock Card <small id="ver" style="color:var(--secondary-text-color);font-size:.8rem"></small></h1>
+  <div>
+    <button id="theme">Toggle dark mode</button>
+    <button id="lockall">Lock everything</button>
+    <button id="unlockall">Unlock everything</button>
+  </div>
+</header>
+
+<h2>Your locks (tap the illustration to toggle)</h2>
+<div class="grid" id="main"></div>
+
+<h2>Layouts</h2>
+<div class="grid wide" id="layouts"></div>
+
+<h2>Custom images</h2>
+<div class="grid" id="images"></div>
+
+<h2>Gallery: every model, style, view and finish</h2>
+<div class="grid" id="gallery"></div>
+
+<script>
+(() => {
+  const params = new URLSearchParams(location.search);
+  if (params.get("theme") === "dark") document.documentElement.dataset.theme = "dark";
+  const ago = (min) => new Date(Date.now() - min * 60000).toISOString();
+
+  const mk = (id, state, name, min, attrs = {}) => ({
+    entity_id: id, state, last_changed: ago(min), last_updated: ago(min),
+    attributes: { friendly_name: name, supported_features: 0, ...attrs },
+  });
+
+  let states = {
+    "lock.front_door": mk("lock.front_door", "locked", "Front Door", 12),
+    "sensor.front_door_battery": mk("sensor.front_door_battery", "86", "Front Door Battery", 300, { device_class: "battery", unit_of_measurement: "%" }),
+    "lock.back_door": mk("lock.back_door", "unlocked", "Back Door", 3, { changed_by: "Keypad" }),
+    "sensor.back_door_battery": mk("sensor.back_door_battery", "34", "Back Door Battery", 400, { device_class: "battery", unit_of_measurement: "%" }),
+    "lock.garage_entry": mk("lock.garage_entry", "locked", "Garage Entry", 190, { supported_features: 1 }),
+    "sensor.garage_entry_battery": mk("sensor.garage_entry_battery", "12", "Garage Entry Battery", 400, { device_class: "battery", unit_of_measurement: "%" }),
+    "lock.patio": mk("lock.patio", "jammed", "Patio Door", 1, { battery_level: 58 }),
+    "lock.shed": mk("lock.shed", "unavailable", "Shed", 2000),
+    "lock.gallery": mk("lock.gallery", "locked", "Gallery", 60),
+    "lock.gallery_unlocked": mk("lock.gallery_unlocked", "unlocked", "Gallery", 60),
+  };
+  const entities = {
+    "lock.front_door": { entity_id: "lock.front_door", device_id: "level1", platform: "matter" },
+    "sensor.front_door_battery": { entity_id: "sensor.front_door_battery", device_id: "level1", platform: "matter" },
+    "lock.back_door": { entity_id: "lock.back_door", device_id: "schlage1", platform: "schlage" },
+    "sensor.back_door_battery": { entity_id: "sensor.back_door_battery", device_id: "schlage1", platform: "schlage" },
+  };
+  const devices = {
+    level1: { id: "level1", manufacturer: "Level Home Inc.", model: "Level Lock Pro", name: "Front Door" },
+    schlage1: { id: "schlage1", manufacturer: "Schlage", model: "BE499WB", name: "Back Door" },
+  };
+  // Simulated latency: Matter locks report locking/unlocking, cloud locks just flip later.
+  const behaviour = {
+    "lock.front_door": { transitional: true, delay: 1600 },
+    "lock.back_door": { transitional: false, delay: 2600 },
+  };
+
+  const cards = [];
+  const makeHass = () => ({
+    states, entities, devices,
+    language: "en",
+    locale: { language: "en", time_format: "language", time_zone: "local" },
+    config: { time_zone: "America/New_York" },
+    localize: () => "",
+    callService: (domain, service, data) => {
+      const id = data.entity_id;
+      const b = behaviour[id] || { transitional: true, delay: 1200 };
+      if (b.transitional) setTimeout(() => setState(id, { lock: "locking", unlock: "unlocking", open: "opening" }[service]), 250);
+      setTimeout(() => setState(id, { lock: "locked", unlock: "unlocked", open: "open" }[service]), b.delay);
+      return Promise.resolve();
+    },
+  });
+  let hass = makeHass();
+  const push = () => { hass = makeHass(); cards.forEach((c) => (c.hass = hass)); };
+  const setState = (id, state) => {
+    const now = new Date().toISOString();
+    states = { ...states, [id]: { ...states[id], state, last_changed: now, last_updated: now } };
+    push();
+  };
+
+  const add = (container, config, label, controls) => {
+    const cell = document.createElement("div");
+    cell.className = "cell";
+    if (label) cell.innerHTML = `<small>${label}</small>`;
+    const card = document.createElement("door-lock-card");
+    card.setConfig({ type: "custom:door-lock-card", ...config });
+    card.hass = hass;
+    cards.push(card);
+    cell.appendChild(card);
+    if (controls) {
+      const row = document.createElement("div");
+      row.className = "controls";
+      for (const s of ["locked", "unlocked", "locking", "unlocking", "jammed", "unavailable"]) {
+        const b = document.createElement("button");
+        b.textContent = s;
+        b.onclick = () => setState(config.entity, s);
+        row.appendChild(b);
+      }
+      cell.appendChild(row);
+    }
+    document.getElementById(container).appendChild(cell);
+    return card;
+  };
+
+  // --- Main ---
+  add("main", { entity: "lock.front_door" }, "Level Lock Pro · auto-detected model + battery", true);
+  add("main", { entity: "lock.back_door", lock_style: "century", finish: "satin_nickel", show_buttons: true, confirm: "unlock" }, "Schlage Encode Plus · Century · confirm before unlock", true);
+  add("main", { entity: "lock.garage_entry", lock_type: "schlage_encode_plus", lock_style: "camelot", finish: "aged_bronze", view: "exterior", door_side: "left", show_buttons: true, last_changed_format: "both" }, "Schlage Camelot · aged bronze · left-hand door", true);
+  add("main", { entity: "lock.patio", lock_type: "deadbolt", lock_style: "square", finish: "custom", color: [32, 96, 160], locked_color: "#00bfa5" }, "Generic deadbolt · custom color", true);
+
+  // --- Layouts ---
+  add("layouts", { entity: "lock.front_door", layout: "horizontal", show_buttons: true, finish: "satin_nickel" }, "layout: horizontal");
+  add("layouts", { entity: "lock.back_door", layout: "horizontal", lock_type: "schlage_encode_plus", view: "interior", finish: "matte_black" }, "layout: horizontal · Schlage interior");
+  add("layouts", { entity: "lock.front_door", layout: "compact" }, "layout: compact");
+  add("layouts", { entity: "lock.back_door", layout: "compact", show_buttons: true }, "layout: compact + buttons");
+  add("layouts", { entity: "lock.shed", layout: "compact", lock_type: "deadbolt" }, "compact · unavailable");
+
+  // --- Images ---
+  const images = {
+    locked: "images/door-locked.svg",
+    unlocked: "images/door-unlocked.svg",
+    locking: "images/door-locking.svg",
+    unlocking: "images/door-unlocking.svg",
+    jammed: "images/door-jammed.svg",
+  };
+  add("images", { entity: "lock.front_door", name: "Front Door (images, fade)", images }, "images + transition: fade", true);
+  add("images", { entity: "lock.back_door", name: "Back Door (images, flip)", images: { locked: images.locked, unlocked: images.unlocked }, image_transition: "flip", show_buttons: true }, "only locked/unlocked images · flip", true);
+  add("images", { entity: "lock.garage_entry", name: "Garage (images, slide)", images, image_transition: "slide", layout: "horizontal" }, "slide · horizontal");
+
+  // --- Gallery ---
+  const combos = [];
+  for (const [type, info] of Object.entries(DoorLockCardInfo.lockTypes)) {
+    for (const style of Object.keys(info.styles)) {
+      for (const view of ["exterior", "interior"]) combos.push({ type, style, view });
+    }
+  }
+  const finishes = Object.keys(DoorLockCardInfo.finishes);
+  combos.forEach((c, i) => {
+    const finish = finishes[i % finishes.length];
+    const entity = i % 2 ? "lock.gallery_unlocked" : "lock.gallery";
+    add("gallery", {
+      entity, lock_type: c.type, lock_style: c.style, view: c.view, finish,
+      name: `${DoorLockCardInfo.lockTypes[c.type].label}`, show_battery: false, art_size: 170,
+    }, `${c.type} · ${c.style} · ${c.view} · ${finish}`);
+  });
+
+  document.getElementById("ver").textContent = "v" + DoorLockCardInfo.version;
+  document.getElementById("theme").onclick = () => {
+    const d = document.documentElement;
+    d.dataset.theme = d.dataset.theme === "dark" ? "light" : "dark";
+  };
+  const all = (svc) => Object.keys(behaviour).concat(["lock.garage_entry", "lock.patio"]).forEach((id) => hass.callService("lock", svc, { entity_id: id }));
+  document.getElementById("lockall").onclick = () => all("lock");
+  document.getElementById("unlockall").onclick = () => all("unlock");
+
+  // Hooks for automated screenshots.
+  window.demo = { setState, cards, get hass() { return hass; } };
+})();
+</script>
+</body>
+</html>
