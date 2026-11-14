@@ -4,7 +4,8 @@ name: Release
 # It checks the card, raises the version, commits and tags that, and publishes
 # a GitHub release with the card attached, which is what HACS installs.
 #
-# Versions run 0.01, 0.02 … 0.99, 1.00, 1.01 …
+# Versions run 0.01, 0.02 … 0.99, 1.00, 1.01 … and the tag and release carry
+# exactly that number, with no "v" in front.
 #   minor  adds 0.01 (and rolls 0.99 over to 1.00)
 #   major  goes to the next whole number (0.37 → 1.00, 1.05 → 2.00)
 
@@ -58,8 +59,9 @@ jobs:
         run: |
           previous="$(node .github/scripts/version.mjs current)"
           version="$(node .github/scripts/version.mjs bump "$BUMP")"
-          echo "tag=v$version" >> "$GITHUB_OUTPUT"
-          echo "### v$previous → v$version ($BUMP)" >> "$GITHUB_STEP_SUMMARY"
+          # The tag and the release are named with the bare number: 0.01, not v0.01.
+          echo "tag=$version" >> "$GITHUB_OUTPUT"
+          echo "### $previous → $version ($BUMP)" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Commit, tag and push
         env:

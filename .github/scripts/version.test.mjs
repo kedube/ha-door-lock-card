@@ -53,7 +53,7 @@ test("anything that is not major.minor with two digits is refused", () => {
 
 test("the version is read from and written to the card's VERSION constant only", () => {
   const file = join(mkdtempSync(join(tmpdir(), "dlc-version-")), "card.js");
-  const source = '(() => {\n  const VERSION = "0.41";\n  const OTHER = "0.41";\n  console.info(`v${VERSION}`);\n})();\n';
+  const source = '(() => {\n  const VERSION = "0.41";\n  const OTHER = "0.41";\n  console.info(VERSION);\n})();\n';
   writeFileSync(file, source);
   assert.equal(readVersion(file), "0.41");
   writeVersion("0.42", file);
@@ -62,6 +62,12 @@ test("the version is read from and written to the card's VERSION constant only",
 
   writeFileSync(file, "const NOTHING = 1;\n");
   assert.throws(() => readVersion(file), /found 0/);
+});
+
+test("a release is tagged with the bare number, with no v in front", () => {
+  const workflow = readFileSync(new URL("../workflows/release.yml", import.meta.url), "utf8");
+  assert.match(workflow, /echo "tag=\$version" >> "\$GITHUB_OUTPUT"/);
+  assert.doesNotMatch(workflow, /\bv\$\{?(version|previous|TAG)\b/);
 });
 
 test("the card itself carries a well-formed version", () => {

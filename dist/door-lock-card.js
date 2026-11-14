@@ -10,7 +10,7 @@
   "use strict";
 
   // Raised by the Release workflow (.github/scripts/version.mjs): 0.01 … 0.99, 1.00 …
-  const VERSION = "0.01";
+  const VERSION = "0.00";
   const CARD_TAG = "door-lock-card";
   const EDITOR_TAG = "door-lock-card-editor";
 
@@ -2991,7 +2991,7 @@
   window.DoorLockCardInfo = { version: VERSION, finishes: FINISHES, lockTypes: LOCK_TYPES };
 
   console.info(
-    `%c DOOR-LOCK-CARD %c v${VERSION} `,
+    `%c DOOR-LOCK-CARD %c ${VERSION} `,
     "color:#fff;background:#43a047;font-weight:700;border-radius:3px 0 0 3px",
     "color:#43a047;background:#1c1c1c;font-weight:700;border-radius:0 3px 3px 0"
   );

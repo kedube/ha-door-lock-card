@@ -203,7 +203,7 @@
     }, `${c.type} · ${c.style} · ${c.view} · ${finish}`);
   });
 
-  document.getElementById("ver").textContent = "v" + DoorLockCardInfo.version;
+  document.getElementById("ver").textContent = DoorLockCardInfo.version;
   document.getElementById("theme").onclick = () => {
     const d = document.documentElement;
     d.dataset.theme = d.dataset.theme === "dark" ? "light" : "dark";

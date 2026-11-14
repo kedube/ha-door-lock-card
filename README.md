@@ -185,7 +185,7 @@ To publish, run the **Release** workflow from the Actions tab and choose the bum
 
 Or from a terminal: `gh workflow run release.yml -f bump=minor`.
 
-The workflow runs the same checks as Validate, writes the new version into the card, commits and tags it (`v0.01`), and publishes a GitHub release with `door-lock-card.js` attached. HACS offers that release as the update.
+The workflow runs the same checks as Validate, writes the new version into the card, commits and tags it with the bare number (`0.01`, no `v`), and publishes a GitHub release with `door-lock-card.js` attached. HACS offers that release as the update.
 
 ## Disclaimer
 
