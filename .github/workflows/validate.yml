@@ -4,6 +4,10 @@ on:
   push:
   pull_request:
   workflow_dispatch:
+  workflow_call: # the Release workflow runs these checks before it publishes
+
+permissions:
+  contents: read
 
 jobs:
   hacs:
@@ -14,12 +18,30 @@ jobs:
         with:
           category: plugin
 
-  syntax:
-    name: JavaScript syntax
+  checks:
+    name: Syntax and version
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
-          node-version: 20
-      - run: node --check dist/door-lock-card.js
+          node-version: 24
+      - name: The card parses
+        run: node --check dist/door-lock-card.js
+      - name: The version looks like 0.01 or 1.00
+        run: node .github/scripts/version.mjs check
+      - name: The version bump works
+        run: node --test .github/scripts/version.test.mjs
+
+  smoke:
+    name: Card works in a browser
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      # Drives the Chrome already on the runner, so nothing else is downloaded.
+      - run: npm install --no-save playwright-core@1.65.1
+      - name: Every lock renders and a tap locks/unlocks
+        run: node .github/scripts/smoke.mjs

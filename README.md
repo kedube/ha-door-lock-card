@@ -110,9 +110,9 @@ If you leave out `lock_type`, the card guesses it from the device's manufacturer
 | `image_transition` | `fade` | `fade`, `slide`, `zoom`, `flip` or `none`. |
 | `image_fit` | `contain` | `contain`, `cover`, `fill` or `scale-down`. |
 
-### Upgrading from 1.x
+### Upgrading from the first version
 
-Version 2 shows the lock on its own, so the door, frame and sliding bolt are gone. `show_door`, `door_side`, `door_color` and `frame_color` are no longer used; you can leave them in your YAML (they are ignored) or delete them.
+The card now shows the lock on its own, so the door, frame and sliding bolt are gone. `show_door`, `door_side`, `door_color` and `frame_color` are no longer used; you can leave them in your YAML (they are ignored) or delete them.
 
 ## Custom images
 
@@ -160,6 +160,32 @@ Available: `--dlc-locked`, `--dlc-unlocked`, `--dlc-pending`, `--dlc-jammed`, `-
 ## Demo
 
 Open `demo/index.html` in a browser to try every model, style, finish and layout against a simulated Home Assistant. You can tap the locks, switch states and toggle dark mode. No Home Assistant install is needed.
+
+## Development
+
+There is no build step: `dist/door-lock-card.js` is the source.
+
+Every push and pull request runs the **Validate** workflow: HACS validation, a syntax check, a check of the version number, and a smoke test that opens the demo in headless Chrome and makes sure every lock renders and a tap locks and unlocks. To run the smoke test yourself:
+
+```sh
+npm install --no-save playwright-core
+node .github/scripts/smoke.mjs
+```
+
+### Releasing
+
+Versions run `0.01`, `0.02` … `0.99`, `1.00`, `1.01` … The number lives in the `VERSION` constant in `dist/door-lock-card.js`, and only the release workflow changes it.
+
+To publish, run the **Release** workflow from the Actions tab and choose the bump:
+
+| Bump | Effect | Examples |
+| --- | --- | --- |
+| `minor` | Adds 0.01, rolling 0.99 over to the next whole number. | 0.01 → 0.02, 0.99 → 1.00 |
+| `major` | Goes straight to the next whole number. | 0.37 → 1.00, 1.05 → 2.00 |
+
+Or from a terminal: `gh workflow run release.yml -f bump=minor`.
+
+The workflow runs the same checks as Validate, writes the new version into the card, commits and tags it (`v0.01`), and publishes a GitHub release with `door-lock-card.js` attached. HACS offers that release as the update.
 
 ## Disclaimer
 

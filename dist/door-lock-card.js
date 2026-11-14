@@ -9,7 +9,8 @@
 (() => {
   "use strict";
 
-  const VERSION = "2.0.0";
+  // Raised by the Release workflow (.github/scripts/version.mjs): 0.01 … 0.99, 1.00 …
+  const VERSION = "0.00";
   const CARD_TAG = "door-lock-card";
   const EDITOR_TAG = "door-lock-card-editor";
 
