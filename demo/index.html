@@ -63,7 +63,7 @@
   </div>
 </header>
 
-<h2>Your locks (tap the illustration to toggle)</h2>
+<h2>Your locks (tap a lock to toggle, move the pointer over it to catch the light)</h2>
 <div class="grid" id="main"></div>
 
 <h2>Layouts</h2>
@@ -164,7 +164,7 @@
   // --- Main ---
   add("main", { entity: "lock.front_door" }, "Level Lock Pro · auto-detected model + battery", true);
   add("main", { entity: "lock.back_door", lock_style: "century", finish: "satin_nickel", show_buttons: true, confirm: "unlock" }, "Schlage Encode Plus · Century · confirm before unlock", true);
-  add("main", { entity: "lock.garage_entry", lock_type: "schlage_encode_plus", lock_style: "camelot", finish: "aged_bronze", view: "exterior", door_side: "left", show_buttons: true, last_changed_format: "both" }, "Schlage Camelot · aged bronze · left-hand door", true);
+  add("main", { entity: "lock.garage_entry", lock_type: "schlage_encode_plus", lock_style: "camelot", finish: "aged_bronze", view: "exterior", show_buttons: true, last_changed_format: "both" }, "Schlage Camelot · aged bronze · with Open button", true);
   add("main", { entity: "lock.patio", lock_type: "deadbolt", lock_style: "square", finish: "custom", color: [32, 96, 160], locked_color: "#00bfa5" }, "Generic deadbolt · custom color", true);
 
   // --- Layouts ---
@@ -176,11 +176,11 @@
 
   // --- Images ---
   const images = {
-    locked: "images/door-locked.svg",
-    unlocked: "images/door-unlocked.svg",
-    locking: "images/door-locking.svg",
-    unlocking: "images/door-unlocking.svg",
-    jammed: "images/door-jammed.svg",
+    locked: "images/lock-locked.svg",
+    unlocked: "images/lock-unlocked.svg",
+    locking: "images/lock-locking.svg",
+    unlocking: "images/lock-unlocking.svg",
+    jammed: "images/lock-jammed.svg",
   };
   add("images", { entity: "lock.front_door", name: "Front Door (images, fade)", images }, "images + transition: fade", true);
   add("images", { entity: "lock.back_door", name: "Back Door (images, flip)", images: { locked: images.locked, unlocked: images.unlocked }, image_transition: "flip", show_buttons: true }, "only locked/unlocked images · flip", true);

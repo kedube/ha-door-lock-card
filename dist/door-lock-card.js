@@ -1,6 +1,6 @@
 /*!
  * Door Lock Card for Home Assistant
- * Animated lock card with built-in illustrations (Level Lock Pro, Schlage Encode Plus,
+ * Animated lock card with built-in renders (Level Lock Pro, Schlage Encode Plus,
  * generic deadbolt) and support for your own per-state images, GIFs or videos.
  *
  * https://github.com/kedube/ha-door-lock-card
@@ -9,7 +9,7 @@
 (() => {
   "use strict";
 
-  const VERSION = "1.0.0";
+  const VERSION = "2.0.0";
   const CARD_TAG = "door-lock-card";
   const EDITOR_TAG = "door-lock-card-editor";
 
@@ -17,16 +17,21 @@
   /* Catalog: finishes, lock types, states                               */
   /* ------------------------------------------------------------------ */
 
+  // How each finish answers light, in linear values. `f0` is the mirror
+  // reflectance (the metal's colour); `alb` is the diffuse colour and marks a
+  // painted or coated finish; `brush` is how strongly a brushed grain smears
+  // highlights; `coat` is a thin glossy top coat; `wear` is the metal showing
+  // through on the edges.
   const FINISHES = {
-    matte_black: { label: "Matte black", base: "#2c2d30", light: "#55585e", dark: "#121315", detail: "#7a7d84" },
-    satin_nickel: { label: "Satin nickel", base: "#a9adb2", light: "#e4e7ea", dark: "#6c7076", detail: "#4d5156" },
-    satin_chrome: { label: "Satin chrome", base: "#bcc1c6", light: "#f4f6f8", dark: "#80868c", detail: "#585d63" },
-    bright_chrome: { label: "Bright chrome", base: "#cfd4d9", light: "#ffffff", dark: "#767d84", detail: "#4a5056" },
-    aged_bronze: { label: "Aged bronze", base: "#5d4636", light: "#8c6d52", dark: "#2c2018", detail: "#b08f6f" },
-    polished_brass: { label: "Polished brass", base: "#c8a046", light: "#f5dc92", dark: "#86671f", detail: "#654d17" },
-    satin_brass: { label: "Satin brass", base: "#b29660", light: "#ddc797", dark: "#7c6436", detail: "#5c4a27" },
-    black_stainless: { label: "Black stainless", base: "#3e4044", light: "#6d7076", dark: "#1c1d20", detail: "#92959b" },
-    white: { label: "White", base: "#e8e9eb", light: "#ffffff", dark: "#b4b7bb", detail: "#878a8e" },
+    matte_black: { label: "Matte black", alb: [0.019, 0.0193, 0.0205], f0: [0.04, 0.04, 0.043], rough: 0.46, grain: 0.05, coat: 0.006 },
+    satin_nickel: { label: "Satin nickel", f0: [0.64, 0.6, 0.53], rough: 0.4, brush: 0.75, grain: 0.1 },
+    satin_chrome: { label: "Satin chrome", f0: [0.6, 0.62, 0.65], rough: 0.34, brush: 0.75, grain: 0.09 },
+    bright_chrome: { label: "Bright chrome", f0: [0.8, 0.81, 0.83], rough: 0.05 },
+    aged_bronze: { label: "Aged bronze", f0: [0.07, 0.042, 0.028], rough: 0.42, brush: 0.2, grain: 0.07, wear: [0.42, 0.21, 0.09], coat: 0.012 },
+    polished_brass: { label: "Polished brass", f0: [0.93, 0.7, 0.3], rough: 0.06 },
+    satin_brass: { label: "Satin brass", f0: [0.8, 0.62, 0.32], rough: 0.4, brush: 0.75, grain: 0.1 },
+    black_stainless: { label: "Black stainless", f0: [0.115, 0.115, 0.125], rough: 0.3, brush: 0.85, grain: 0.1 },
+    white: { label: "White", alb: [0.6, 0.6, 0.59], f0: [0.045, 0.045, 0.045], rough: 0.3, coat: 0.05 },
   };
 
   const LOCK_TYPES = {
@@ -62,7 +67,7 @@
     generic: "deadbolt",
   };
 
-  // pose drives the illustration, tone drives the colour.
+  // pose drives the lock art, tone drives the colour.
   const STATES = {
     locked: { pose: "locked", tone: "locked", label: "Locked" },
     unlocked: { pose: "unlocked", tone: "unlocked", label: "Unlocked" },
@@ -102,7 +107,6 @@
     show_changed_by: true,
     show_buttons: false,
     show_indicator: true,
-    door_side: "right",
     confirm: "none",
     animation_duration: 700,
     battery_low_threshold: 20,
@@ -157,201 +161,1078 @@
   };
 
   /* ------------------------------------------------------------------ */
-  /* SVG illustration                                                    */
+  /* Lock renderer                                                       */
   /* ------------------------------------------------------------------ */
+  // A lock is not a picture here. Every part is a signed-distance shape with
+  // an edge profile, which gives each pixel a height; the surface that
+  // results is lit by a small studio rig. That is what makes bevels catch
+  // the light, keeps reflections in place while a thumbturn rotates beneath
+  // them, and lets any finish render at any size without image files.
 
-  const ART_H = 220;
-  const ART_CY = 110;
+  const ART = 220; // the art box is ART × ART units with the lock at its centre
+  const HALF = ART / 2;
 
-  function svgDefs(u) {
-    const stop = (o, v) => `<stop offset="${o}" style="stop-color:var(${v})"/>`;
-    return `<defs>
-      <linearGradient id="${u}-md" x1="0" y1="0" x2="1" y2="1">${stop(0, "--dlc-metal-light")}${stop(0.5, "--dlc-metal-base")}${stop(1, "--dlc-metal-dark")}</linearGradient>
-      <linearGradient id="${u}-mv" x1="0" y1="0" x2="0" y2="1">${stop(0, "--dlc-metal-light")}${stop(0.55, "--dlc-metal-base")}${stop(1, "--dlc-metal-dark")}</linearGradient>
-      <linearGradient id="${u}-mi" x1="0" y1="0" x2="1" y2="1">${stop(0, "--dlc-metal-dark")}${stop(0.55, "--dlc-metal-base")}${stop(1, "--dlc-metal-light")}</linearGradient>
-      <linearGradient id="${u}-mt" x1="0" y1="0" x2="1" y2="0">${stop(0, "--dlc-metal-dark")}${stop(0.45, "--dlc-metal-light")}${stop(1, "--dlc-metal-base")}</linearGradient>
-      <radialGradient id="${u}-mr" cx="0.35" cy="0.3" r="0.85">${stop(0, "--dlc-metal-light")}${stop(0.55, "--dlc-metal-base")}${stop(1, "--dlc-metal-dark")}</radialGradient>
-      <linearGradient id="${u}-glass" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#2a2e35"/><stop offset="0.5" stop-color="#121418"/><stop offset="1" stop-color="#07080a"/></linearGradient>
-      <filter id="${u}-shadow" x="-50%" y="-50%" width="200%" height="200%"><feDropShadow dx="0" dy="2.2" stdDeviation="2.2" flood-color="#000" flood-opacity="0.38"/></filter>
-      <filter id="${u}-soft" x="-50%" y="-50%" width="200%" height="200%"><feDropShadow dx="0" dy="4" stdDeviation="5" flood-color="#000" flood-opacity="0.28"/></filter>
-      <filter id="${u}-blur" x="-60%" y="-60%" width="220%" height="220%"><feGaussianBlur stdDeviation="16"/></filter>
-      <filter id="${u}-glow" x="-100%" y="-100%" width="300%" height="300%"><feGaussianBlur stdDeviation="1.6" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
-    </defs>`;
+  const clamp01 = (v) => (v < 0 ? 0 : v > 1 ? 1 : v);
+  const smooth = (v) => {
+    v = v < 0 ? 0 : v > 1 ? 1 : v;
+    return v * v * (3 - 2 * v);
+  };
+
+  /* ----- shapes: signed distance, negative inside ----- */
+
+  const sdCircle = (x, y, r) => Math.sqrt(x * x + y * y) - r;
+
+  const sdBox = (x, y, hw, hh, r) => {
+    const qx = Math.abs(x) - hw + r;
+    const qy = Math.abs(y) - hh + r;
+    const ox = qx > 0 ? qx : 0;
+    const oy = qy > 0 ? qy : 0;
+    return Math.sqrt(ox * ox + oy * oy) + Math.min(Math.max(qx, qy), 0) - r;
+  };
+
+  // Stadium standing on end: a segment from (0,-half) to (0,half), grown by r.
+  const sdCapsule = (x, y, half, r) => {
+    const dy = y - (y < -half ? -half : y > half ? half : y);
+    return Math.sqrt(x * x + dy * dy) - r;
+  };
+
+  // Signed distance to an outline that is symmetric left to right. `half`
+  // lists its right-hand side from the top centre to the bottom centre;
+  // `soft` grows the shape, which rounds its corners.
+  function sdOutline(half, soft) {
+    const n = half.length;
+    const X = Float64Array.from(half, (p) => p[0]);
+    const Y = Float64Array.from(half, (p) => p[1]);
+    return (x, y) => {
+      x = Math.abs(x);
+      let best = 1e9;
+      let inside = false;
+      for (let i = 1; i < n; i++) {
+        const xj = X[i - 1];
+        const yj = Y[i - 1];
+        const xi = X[i];
+        const yi = Y[i];
+        if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside;
+        const ex = xi - xj;
+        const ey = yi - yj;
+        const wx = x - xj;
+        const wy = y - yj;
+        const len = ex * ex + ey * ey;
+        const t = len > 0 ? clamp01((wx * ex + wy * ey) / len) : 0;
+        const dx = wx - ex * t;
+        const dy = wy - ey * t;
+        const q = dx * dx + dy * dy;
+        if (q < best) best = q;
+      }
+      return (inside ? -1 : 1) * Math.sqrt(best) - soft;
+    };
   }
 
-  // Thumbturn (rotates). Drawn around 0,0; a transparent circle keeps the
-  // bounding box symmetric so CSS rotation pivots on the centre.
-  function thumbturn(u, { len, w, slim }) {
-    const r = len / 2;
-    const grip = slim
-      ? `<rect x="-1" y="${-r + 6}" width="2" height="${r - 16}" rx="1" fill="var(--dlc-metal-light)" opacity=".5"/>`
-      : `<path d="M ${-w * 0.22} ${-r + 9} h ${w * 0.44}" stroke="var(--dlc-metal-light)" stroke-width="1.4" stroke-linecap="round" opacity=".55"/>
-         <path d="M ${-w * 0.22} ${-r + 14} h ${w * 0.44}" stroke="var(--dlc-metal-light)" stroke-width="1.4" stroke-linecap="round" opacity=".4"/>`;
-    return `<g filter="url(#${u}-shadow)"><g class="turn">
-      <circle r="${r + 2}" fill="none"/>
-      <rect x="${-w / 2}" y="${-r}" width="${w}" height="${len}" rx="${w / 2}" fill="url(#${u}-mt)" stroke="var(--dlc-metal-dark)" stroke-width="1"/>
-      ${grip}
-      <circle r="${w * (slim ? 0.42 : 0.36)}" fill="url(#${u}-mr)" stroke="var(--dlc-metal-dark)" stroke-width="0.8"/>
-    </g></g>`;
+  // Where two shapes overlap, with the corner between them rounded by r.
+  const both = (d1, d2, r) => {
+    const u = d1 + r;
+    const v = d2 + r;
+    return Math.min(Math.max(u, v), 0) + Math.sqrt((u > 0 ? u * u : 0) + (v > 0 ? v * v : 0)) - r;
+  };
+
+  /* ----- edge profiles: height at distance d from the outline ----- */
+  // Both rise over `w` units to height `t`. Outside the shape the surface
+  // falls away steeply, so the silhouette picks up grazing light.
+
+  const bevel = (d, w, t) => (d >= 0 ? -3 * d : d <= -w ? t : (-d / w) * t);
+
+  const fillet = (d, w, t) => {
+    if (d >= 0) return -3 * d;
+    if (d <= -w) return t;
+    const u = 1 + d / w;
+    return t * Math.sqrt(1 - u * u);
+  };
+
+  // Height on the bevel between two nested outlines: `lo` at the outer one,
+  // `hi` on and inside the inner one. Corners come out mitred, like a frame.
+  const loft = (dOuter, dInner, lo, hi) => {
+    if (dInner <= 0) return hi;
+    const t = -dOuter / (dInner - dOuter);
+    return lo + (hi - lo) * (t + 0.28 * t * (1 - t)); // a touch convex, so a reflection travels across it
+  };
+
+  /* ----- noise, for brushed grain ----- */
+
+  const hash2 = (ix, iy) => {
+    let h = Math.imul(ix, 374761393) + Math.imul(iy, 668265263);
+    h = Math.imul(h ^ (h >>> 13), 1274126177);
+    return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
+  };
+
+  const vnoise = (x, y) => {
+    const ix = Math.floor(x);
+    const iy = Math.floor(y);
+    const fx = x - ix;
+    const fy = y - iy;
+    const sx = fx * fx * (3 - 2 * fx);
+    const sy = fy * fy * (3 - 2 * fy);
+    const a = hash2(ix, iy);
+    const b = hash2(ix + 1, iy);
+    const c = hash2(ix, iy + 1);
+    const d = hash2(ix + 1, iy + 1);
+    return a + (b - a) * sx + (c - a) * sy + (a - b - c + d) * sx * sy;
+  };
+
+  // u runs across the brush lines, v along them. Result is -1..1.
+  const streak = (u, v) => (vnoise(u * 2.3, v * 0.045) * 0.6 + vnoise(u * 0.8 + 17.3, v * 0.02 + 5.1) * 0.4) * 2 - 1;
+  const speckle = (x, y) => vnoise(x * 2.9, y * 2.9) * 2 - 1;
+
+  /* ----- materials ----- */
+
+  const toLinear = (v) => {
+    v /= 255;
+    return v <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+  };
+
+  function material(o) {
+    const rough = o.rough;
+    const f0 = o.f0;
+    const alb = o.alb || [0, 0, 0];
+    const peak = Math.max(f0[0], f0[1], f0[2], 0.001);
+    const metal = !o.alb;
+    return {
+      ar: alb[0], ag: alb[1], ab: alb[2],
+      fr: f0[0], fg: f0[1], fb: f0[2],
+      r2: rough * rough * 0.9,
+      ihw: 0.5 / (0.2 + rough * 0.85), // how sharp the ceiling/floor line reflects
+      fmax: 1 - rough * 0.75,
+      k: o.brush || 0,
+      iat2: 1 / Math.pow(0.07 + rough * 0.14, 2),
+      iab2: 1 / (0.62 * 0.62),
+      grain: o.grain || 0,
+      coat: o.coat || 0,
+      wear: o.wear ? 1 : 0,
+      wr: o.wear ? o.wear[0] : 0, wg: o.wear ? o.wear[1] : 0, wb: o.wear ? o.wear[2] : 0,
+      // response to the pointer "torch"
+      pe: rough < 0.12 ? 6 : rough < 0.37 ? 4 : 3,
+      pk: o.torch !== undefined ? o.torch : rough < 0.12 ? 0.9 : metal ? 0.55 : 0.3,
+      pr: metal ? f0[0] / peak : 1, pg: metal ? f0[1] / peak : 1, pb: metal ? f0[2] / peak : 1,
+    };
   }
 
-  // Key cylinder with a keyway that rotates.
-  function cylinder(u, R) {
-    const p = R - 4;
-    return `<circle r="${R}" fill="url(#${u}-mr)" stroke="var(--dlc-metal-dark)" stroke-width="1"/>
-      <circle r="${p}" fill="url(#${u}-mi)" stroke="var(--dlc-metal-dark)" stroke-opacity=".6" stroke-width=".8"/>
-      <g class="turn"><circle r="${p}" fill="none"/>
-        <circle cy="${-p * 0.34}" r="${p * 0.27}" class="keyhole"/>
-        <rect x="${-p * 0.11}" y="${-p * 0.36}" width="${p * 0.22}" height="${p * 1.06}" rx="${p * 0.1}" class="keyhole"/>
+  const MAT_ID = { body: 1, trim: 2, glass: 3, gloss: 4, cover: 5, screen: 6 };
+  const PIT = 0.004; // the dark inside of a keyway
+  const BRASS = [0.3, 0.17, 0.045]; // the first pin, seen at the foot of the keyway
+
+  function materialsFor(fin) {
+    const mats = {
+      body: material(fin),
+      trim: material({ ...fin, rough: fin.rough * 0.88 }),
+      glass: material({ alb: [0.003, 0.0032, 0.004], f0: [0.026, 0.028, 0.033], rough: 0.05, torch: 0.34 }),
+      gloss: material({ alb: [0.006, 0.006, 0.007], f0: [0.05, 0.051, 0.055], rough: 0.14, torch: 0.5 }),
+      // Schlage's black battery cover and the face of its touchscreen.
+      cover: material({ alb: [0.019, 0.0193, 0.0205], f0: [0.04, 0.04, 0.043], rough: 0.46, grain: 0.05, coat: 0.006 }),
+      screen: material({ alb: [0.0042, 0.0044, 0.005], f0: [0.02, 0.021, 0.024], rough: 0.24, torch: 0.3 }),
+    };
+    mats.list = [null, mats.body, mats.trim, mats.glass, mats.gloss, mats.cover, mats.screen];
+    return mats;
+  }
+
+  const customFinish = (rgb) => {
+    const c = rgb.map(toLinear);
+    return { f0: c.map((v) => v * 0.86 + 0.035), rough: 0.36, brush: 0.6, grain: 0.08 };
+  };
+
+  /* ----- lighting ----- */
+
+  const unit = (x, y, z) => {
+    const l = Math.hypot(x, y, z);
+    return [x / l, y / l, z / l];
+  };
+
+  // x right, y down, z towards the viewer.
+  const RIG = [
+    { at: [-0.52, -0.64, 0.57], c: [4.3, 4.25, 4.15], size: 0.045, diff: 0.62, aniso: 0.5 }, // key softbox, upper left
+    { at: [0.88, -0.1, 0.46], c: [1.3, 1.42, 1.6], size: 0.02, diff: 0.18, aniso: 0.6 }, // cool strip, right
+    { at: [0.05, -0.93, 0.36], c: [2.3, 2.3, 2.35], size: 0.07, diff: 0.12, aniso: 0.3 }, // overhead softbox
+    { at: [-0.2, 0.86, 0.47], c: [0.26, 0.25, 0.25], size: 0.2, diff: 0.08, aniso: 0.3 }, // bounce from below
+  ].map((l) => {
+    const d = unit(...l.at);
+    const h = unit(d[0], d[1], d[2] + 1);
+    return { x: d[0], y: d[1], z: d[2], hx: h[0], hy: h[1], hz: h[2], r: l.c[0], g: l.c[1], b: l.c[2], size: l.size, diff: l.diff, aniso: l.aniso };
+  });
+  const SKY = [0.3, 0.31, 0.33];
+  const FLOOR = [0.04, 0.04, 0.041];
+  const AMBIENT = 0.1;
+  const PERSP = 0.2 / HALF;
+  const SHADOW_X = 0.32; // shadow offset per unit of height
+  const SHADOW_Y = 0.55;
+  const TORCH_H = 58;
+
+  // shade() leaves its result (linear light) here.
+  let SR = 0;
+  let SG = 0;
+  let SB = 0;
+
+  function shade(m, nx, ny, nz, x, y, tx, ty) {
+    // A flat face would reflect one colour. A little tilt that grows with
+    // distance from the centre stands in for perspective and nearby lights.
+    nx += x * PERSP;
+    ny += y * PERSP;
+    const il = 1 / Math.sqrt(nx * nx + ny * ny + nz * nz);
+    nx *= il;
+    ny *= il;
+    nz *= il;
+    const rx = 2 * nz * nx;
+    const ry = 2 * nz * ny;
+    const rz = 2 * nz * nz - 1;
+
+    // The room: a dim studio, lighter overhead than underfoot. Grazing
+    // reflections see the wall the lock is mounted on, which is dimmer still.
+    let t = 0.5 - ry * m.ihw;
+    t = t < 0 ? 0 : t > 1 ? 1 : t;
+    t = t * t * (3 - 2 * t);
+    const wall = rz >= 0 ? 1 : 0.3 + 0.7 * smooth(1 + rz * 1.1);
+    let er = (FLOOR[0] + (SKY[0] - FLOOR[0]) * t) * wall;
+    let eg = (FLOOR[1] + (SKY[1] - FLOOR[1]) * t) * wall;
+    let eb = (FLOOR[2] + (SKY[2] - FLOOR[2]) * t) * wall;
+    let dr = AMBIENT;
+    let dg = AMBIENT;
+    let db = AMBIENT;
+    const coat = m.coat;
+    let cr = 0;
+    let cg = 0;
+    let cb = 0;
+
+    // Brushed metal smears highlights across the brush lines.
+    const k = tx !== 0 || ty !== 0 ? m.k : 0;
+    let Tx = 0, Ty = 0, Tz = 0, Bx = 0, By = 0, Bz = 0;
+    if (k > 0) {
+      const tn = tx * nx + ty * ny;
+      Tx = tx - nx * tn;
+      Ty = ty - ny * tn;
+      Tz = -nz * tn;
+      const tl = 1 / Math.sqrt(Tx * Tx + Ty * Ty + Tz * Tz);
+      Tx *= tl;
+      Ty *= tl;
+      Tz *= tl;
+      Bx = ny * Tz - nz * Ty;
+      By = nz * Tx - nx * Tz;
+      Bz = nx * Ty - ny * Tx;
+    }
+
+    for (let i = 0; i < RIG.length; i++) {
+      const L = RIG[i];
+      const w = L.size + m.r2;
+      let s = Math.exp((rx * L.x + ry * L.y + rz * L.z - 1) / w) * Math.sqrt(L.size / w);
+      if (k > 0) {
+        const nh = nx * L.hx + ny * L.hy + nz * L.hz;
+        if (nh > 0.05) {
+          const th = Tx * L.hx + Ty * L.hy + Tz * L.hz;
+          const bh = Bx * L.hx + By * L.hy + Bz * L.hz;
+          s += (Math.exp(-(th * th * m.iat2 + bh * bh * m.iab2) / (nh * nh)) * L.aniso - s) * k;
+        } else {
+          s *= 1 - k;
+        }
+      }
+      er += L.r * s;
+      eg += L.g * s;
+      eb += L.b * s;
+      if (coat > 0) {
+        // The clear top coat reflects the softbox sharply, whatever lies under it.
+        const c = Math.exp((rx * L.x + ry * L.y + rz * L.z - 1) / (L.size + 0.02)) * coat;
+        cr += L.r * c;
+        cg += L.g * c;
+        cb += L.b * c;
+      }
+      const nl = nx * L.x + ny * L.y + nz * L.z;
+      if (nl > 0) {
+        dr += L.r * nl * L.diff;
+        dg += L.g * nl * L.diff;
+        db += L.b * nl * L.diff;
+      }
+    }
+
+    let f = 1 - nz;
+    f = f * f * f * f * f * m.fmax;
+    let fr = m.fr;
+    let fg = m.fg;
+    let fb = m.fb;
+    if (m.wear) {
+      // Aged finishes rub through to bare metal on the edges.
+      let w = (1 - nz) * 2.4;
+      w = w > 1 ? 1 : w;
+      w *= w;
+      fr += (m.wr - fr) * w;
+      fg += (m.wg - fg) * w;
+      fb += (m.wb - fb) * w;
+    }
+    SR = m.ar * dr + (fr + (1 - fr) * f) * er + cr;
+    SG = m.ag * dg + (fg + (1 - fg) * f) * eg + cg;
+    SB = m.ab * db + (fb + (1 - fb) * f) * eb + cb;
+  }
+
+  // Extra highlight from a small light held over (L.x, L.y): 0..1.
+  function glint(m, nx, ny, nz, x, y, L) {
+    const dx = L.x - x;
+    const dy = L.y - y;
+    const il = 1 / Math.sqrt(dx * dx + dy * dy + TORCH_H * TORCH_H);
+    const lz = TORCH_H * il;
+    let c = 2 * nz * ((nx * dx + ny * dy) * il + nz * lz) - lz;
+    if (c <= 0) return 0;
+    for (let i = m.pe; i > 0; i--) c *= c;
+    return c * lz * m.pk * L.k;
+  }
+
+  // Linear light → display value. Indexed by the square root so the dark
+  // end, where matte black lives, keeps its precision.
+  const TONE = (() => {
+    const t = new Float32Array(4097);
+    for (let i = 0; i <= 4096; i++) {
+      let v = Math.pow(i / 2048, 2);
+      if (v > 0.6) v = 0.6 + 0.4 * (1 - Math.exp(-(v - 0.6) / 0.4)); // soft shoulder
+      t[i] = 255 * (v <= 0.0031308 ? v * 12.92 : 1.055 * Math.pow(v, 1 / 2.4) - 0.055);
+    }
+    return t;
+  })();
+  const tone = (v) => TONE[v <= 0 ? 0 : v >= 4 ? 4096 : (Math.sqrt(v) * 2048) | 0];
+
+  let scratchH = new Float32Array(0);
+  let scratchD = new Float32Array(0);
+  const scratch = (n) => {
+    if (scratchH.length < n) {
+      scratchH = new Float32Array(n);
+      scratchD = new Float32Array(n);
+    }
+  };
+
+  // Everything that doesn't move, plus the shadow the lock casts on the wall.
+  function renderBase(model, mats, px) {
+    const N = px * px;
+    const s = px / ART;
+    const inv = ART / px;
+    const acc = new Float32Array(N * 3);
+    const cov = new Float32Array(N);
+    const nrm = new Int8Array(N * 3);
+    const mid = new Uint8Array(N);
+    const layers = model.layers;
+
+    // Front to back, so pixels hidden under another part are never shaded.
+    for (let li = layers.length - 1; li >= 0; li--) {
+      const L = layers[li];
+      const m = mats[L.mat];
+      const id = MAT_ID[L.mat];
+      const br = L.brush;
+      const x0 = Math.max(1, Math.floor((L.box[0] + HALF) * s) - 1);
+      const y0 = Math.max(1, Math.floor((L.box[1] + HALF) * s) - 1);
+      const x1 = Math.min(px - 2, Math.ceil((L.box[2] + HALF) * s) + 1);
+      const y1 = Math.min(px - 2, Math.ceil((L.box[3] + HALF) * s) + 1);
+      const w = x1 - x0 + 3;
+      const h = y1 - y0 + 3;
+      scratch(w * h);
+      const H = scratchH;
+      const D = scratchD;
+      for (let j = 0, q = 0; j < h; j++) {
+        const y = (y0 - 1 + j + 0.5) * inv - HALF;
+        for (let i = 0; i < w; i++, q++) {
+          const x = (x0 - 1 + i + 0.5) * inv - HALF;
+          const d = L.sdf(x, y);
+          D[q] = d;
+          H[q] = L.h(x, y, d);
+        }
+      }
+      for (let j = 1; j < h - 1; j++) {
+        const py = y0 - 1 + j;
+        const y = (py + 0.5) * inv - HALF;
+        for (let i = 1; i < w - 1; i++) {
+          const q = j * w + i;
+          const d = D[q];
+          let a = 0.5 - d * s;
+          if (a <= 0) continue;
+          if (a > 1) a = 1;
+          const p = py * px + x0 - 1 + i;
+          const rem = 1 - cov[p];
+          if (rem < 0.004) continue;
+          const x = (x0 - 1 + i + 0.5) * inv - HALF;
+
+          let nx = (H[q - 1] - H[q + 1]) * 0.5 * s;
+          let ny = (H[q - w] - H[q + w]) * 0.5 * s;
+          const nl = 1 / Math.sqrt(nx * nx + ny * ny + 1);
+          nx *= nl;
+          ny *= nl;
+
+          // Parts standing above this one shade it and darken the join.
+          let occ = L.occ ? L.occ(x, y, d) : 1;
+          for (let u = li + 1; u < layers.length; u++) {
+            const U = layers[u];
+            const lift = U.z - L.z;
+            if (lift <= 0) continue;
+            const far = lift * 1.2 + 5;
+            if (x < U.box[0] - far || x > U.box[2] + far || y < U.box[1] - far || y > U.box[3] + far) continue;
+            const pen = 0.6 + lift * 0.5;
+            occ *= 1 - 0.5 * smooth(0.5 - U.sdf(x - SHADOW_X * lift, y - SHADOW_Y * lift) / (2 * pen));
+            const dc = U.sdf(x, y);
+            if (dc > 0) occ *= 1 - 0.34 * Math.exp(-dc / (0.6 + lift * 0.2));
+          }
+
+          let tx = 0;
+          let ty = 0;
+          let grain = 0;
+          if (br) {
+            if (br.r) {
+              const bx = x - br.x;
+              const by = y - br.y;
+              const rr = Math.sqrt(bx * bx + by * by) + 1e-6;
+              tx = -by / rr;
+              ty = bx / rr;
+              if (m.grain) grain = m.k ? streak(rr, (bx * 13 + by * 7) / rr) : speckle(x, y);
+            } else {
+              tx = br.x;
+              ty = br.y;
+              if (m.grain) grain = m.k ? streak(x * ty - y * tx, x * tx + y * ty) : speckle(x, y);
+            }
+          } else if (m.grain) {
+            grain = speckle(x, y);
+          }
+
+          shade(m, nx, ny, nl, x, y, tx, ty);
+          if (L.glare) {
+            const glare = L.glare(x, y);
+            SR += glare;
+            SG += glare;
+            SB += glare * 1.05;
+          }
+          const g = occ * (1 + grain * m.grain);
+          const wgt = rem * a;
+          acc[p * 3] += SR * g * wgt;
+          acc[p * 3 + 1] += SG * g * wgt;
+          acc[p * 3 + 2] += SB * g * wgt;
+          cov[p] += wgt;
+          if (!mid[p] && a > 0.5) {
+            mid[p] = id;
+            nrm[p * 3] = nx * 127;
+            nrm[p * 3 + 1] = ny * 127;
+            nrm[p * 3 + 2] = nl * 127;
+          }
+        }
+      }
+    }
+
+    const rgba = new Uint8ClampedArray(N * 4);
+    const outline = model.outline || layers[0].sdf;
+    for (let py = 0, p = 0; py < px; py++) {
+      const y = (py + 0.5) * inv - HALF;
+      for (let pxi = 0; pxi < px; pxi++, p++) {
+        const a = cov[p];
+        let A = a;
+        if (a < 0.996) {
+          const x = (pxi + 0.5) * inv - HALF;
+          const far = 0.3 * smooth(0.5 - outline(x - 2.5, y - 5.5) / 22);
+          const near = 0.34 * smooth(0.5 - outline(x - 0.7, y - 1.5) / 4.4);
+          A = a + (1 - a) * (far + near - far * near);
+        }
+        if (A < 0.003) continue;
+        const o = p * 4;
+        const dither = hash2(pxi, py) - 0.5;
+        rgba[o] = tone(acc[p * 3] / A) + dither;
+        rgba[o + 1] = tone(acc[p * 3 + 1] / A) + dither;
+        rgba[o + 2] = tone(acc[p * 3 + 2] / A) + dither;
+        rgba[o + 3] = A * 255;
+      }
+    }
+    return { px, rgba, nrm, mid };
+  }
+
+  // The rotating part (thumbturn or key plug) and its shadow, drawn over
+  // `under` into `dst`. Returns the rectangle it touched.
+  function paintTurn(dst, under, base, model, mats, angle, torch) {
+    const T = model.turn;
+    const px = base.px;
+    const s = px / ART;
+    const inv = ART / px;
+    const m = mats[T.mat];
+    const br = T.brush;
+    const ca = Math.cos(angle);
+    const sa = Math.sin(angle);
+    const ox = SHADOW_X * T.lift;
+    const oy = SHADOW_Y * T.lift;
+    // The direction shadows fall, per unit of height, in the part's own frame.
+    const ux = SHADOW_X * ca + SHADOW_Y * sa;
+    const uy = SHADOW_Y * ca - SHADOW_X * sa;
+    const pen = 0.6 + T.lift * 0.5;
+    const reach = T.rad + 2;
+    const x0 = Math.max(1, Math.floor((T.cx - reach + HALF) * s));
+    const y0 = Math.max(1, Math.floor((T.cy - reach + HALF) * s));
+    const x1 = Math.min(px - 2, Math.ceil((T.cx + reach + ox + pen + HALF) * s));
+    const y1 = Math.min(px - 2, Math.ceil((T.cy + reach + oy + pen + HALF) * s));
+    const w = x1 - x0 + 3;
+    const h = y1 - y0 + 3;
+    scratch(w * h);
+    const H = scratchH;
+    const D = scratchD;
+    for (let j = 0, q = 0; j < h; j++) {
+      const y = (y0 - 1 + j + 0.5) * inv - HALF - T.cy;
+      for (let i = 0; i < w; i++, q++) {
+        const x = (x0 - 1 + i + 0.5) * inv - HALF - T.cx;
+        const lx = x * ca + y * sa;
+        const ly = y * ca - x * sa;
+        const d = T.sdf(lx, ly);
+        D[q] = d;
+        H[q] = T.h(lx, ly, d);
+      }
+    }
+    for (let j = 1; j < h - 1; j++) {
+      const py = y0 - 1 + j;
+      const y = (py + 0.5) * inv - HALF - T.cy;
+      for (let i = 1; i < w - 1; i++) {
+        const q = j * w + i;
+        const pxi = x0 - 1 + i;
+        const o = (py * px + pxi) * 4;
+        const x = (pxi + 0.5) * inv - HALF - T.cx;
+        const d = D[q];
+        let r = under[o];
+        let g = under[o + 1];
+        let b = under[o + 2];
+        let alpha = under[o + 3];
+
+        if (T.lift > 0 && alpha > 0 && d > -1) {
+          const sx = x - ox;
+          const sy = y - oy;
+          let f = 1 - 0.36 * smooth(0.5 - T.sdf(sx * ca + sy * sa, sy * ca - sx * sa) / (2 * pen));
+          if (d > 0) f *= 1 - 0.2 * Math.exp(-d / 1.5);
+          r *= f;
+          g *= f;
+          b *= f;
+        }
+
+        let a = 0.5 - d * s;
+        if (a > 0) {
+          if (a > 1) a = 1;
+          const lx = x * ca + y * sa;
+          const ly = y * ca - x * sa;
+          let nx = (H[q - 1] - H[q + 1]) * 0.5 * s;
+          let ny = (H[q - w] - H[q + w]) * 0.5 * s;
+          const nl = 1 / Math.sqrt(nx * nx + ny * ny + 1);
+          nx *= nl;
+          ny *= nl;
+
+          let tx = 0;
+          let ty = 0;
+          let grain = 0;
+          if (br) {
+            if (br.r) {
+              const rr = Math.sqrt(x * x + y * y) + 1e-6;
+              tx = -y / rr;
+              ty = x / rr;
+              if (m.grain) grain = m.k ? streak(rr, (lx * 13 + ly * 7) / rr) : speckle(lx, ly);
+            } else {
+              tx = br.x * ca - br.y * sa;
+              ty = br.x * sa + br.y * ca;
+              if (m.grain) grain = m.k ? streak(lx * br.y - ly * br.x, lx * br.x + ly * br.y) : speckle(lx, ly);
+            }
+          } else if (m.grain) {
+            grain = speckle(lx, ly);
+          }
+
+          shade(m, nx, ny, nl, x + T.cx, y + T.cy, tx, ty);
+          const gain = (T.occ ? T.occ(lx, ly, d, ux, uy) : 1) * (1 + grain * m.grain);
+          let cr = SR * gain;
+          let cg = SG * gain;
+          let cb = SB * gain;
+          if (T.ink) {
+            const ink = T.ink(lx, ly, s);
+            cr += (PIT - cr) * ink;
+            cg += (PIT - cg) * ink;
+            cb += (PIT - cb) * ink;
+          }
+          if (T.pin) {
+            const pin = T.pin(lx, ly, s);
+            cr += (BRASS[0] - cr) * pin;
+            cg += (BRASS[1] - cg) * pin;
+            cb += (BRASS[2] - cb) * pin;
+          }
+          cr = tone(cr);
+          cg = tone(cg);
+          cb = tone(cb);
+          if (torch) {
+            const t = glint(m, nx, ny, nl, x + T.cx, y + T.cy, torch);
+            if (t > 0) {
+              cr += (255 - cr) * Math.min(1, t * m.pr);
+              cg += (255 - cg) * Math.min(1, t * m.pg);
+              cb += (255 - cb) * Math.min(1, t * m.pb);
+            }
+          }
+          r += (cr - r) * a;
+          g += (cg - g) * a;
+          b += (cb - b) * a;
+          if (a * 255 > alpha) alpha = a * 255;
+        }
+        dst[o] = r;
+        dst[o + 1] = g;
+        dst[o + 2] = b;
+        dst[o + 3] = alpha;
+      }
+    }
+    return [x0, y0, x1 - x0 + 1, y1 - y0 + 1];
+  }
+
+  // The base picture with the pointer torch playing over it.
+  function applyTorch(dst, base, mats, torch) {
+    const { px, rgba, nrm, mid } = base;
+    const inv = ART / px;
+    const list = mats.list;
+    dst.set(rgba);
+    for (let py = 0, p = 0; py < px; py++) {
+      const y = (py + 0.5) * inv - HALF;
+      for (let pxi = 0; pxi < px; pxi++, p++) {
+        const id = mid[p];
+        if (!id) continue;
+        const m = list[id];
+        const t = glint(m, nrm[p * 3] / 127, nrm[p * 3 + 1] / 127, nrm[p * 3 + 2] / 127, (pxi + 0.5) * inv - HALF, y, torch);
+        if (t <= 0.004) continue;
+        const o = p * 4;
+        dst[o] += (255 - dst[o]) * Math.min(1, t * m.pr);
+        dst[o + 1] += (255 - dst[o + 1]) * Math.min(1, t * m.pg);
+        dst[o + 2] += (255 - dst[o + 2]) * Math.min(1, t * m.pb);
+      }
+    }
+  }
+
+  /* ----- the locks ----- */
+  // Shapes and proportions are measured off the manufacturers' product
+  // photos, in units where the art box is 220 across. Layers are listed back
+  // to front; `z` is how far a part's face stands off the door, which sets
+  // the shadow it casts on the parts behind it.
+
+  const disc = (cx, cy, r) => ({ box: [cx - r, cy - r, cx + r, cy + r], sdf: (x, y) => sdCircle(x - cx, y - cy, r) });
+  const annulus = (rIn, rOut) => ({
+    box: [-rOut, -rOut, rOut, rOut],
+    sdf: (x, y) => {
+      const r = Math.sqrt(x * x + y * y);
+      return Math.max(r - rOut, rIn - r);
+    },
+  });
+  const slab = (cx, cy, hw, hh, r) => ({
+    box: [cx - hw, cy - hh, cx + hw, cy + hh],
+    sdf: (x, y) => sdBox(x - cx, y - cy, hw, hh, r),
+  });
+  const spun = (x, y) => ({ r: 1, x, y }); // brushed in circles around a point
+  const BRUSH_DOWN = { r: 0, x: 0, y: 1 }; // brushed top to bottom
+
+  // Half outline of a four-sided plate that may taper: top centre → bottom centre.
+  const taper = (top, wTop, bottom, wBottom, r) => [
+    [0, top + r],
+    [wTop - r, top + r],
+    [wBottom - r, bottom - r],
+    [0, bottom - r],
+  ];
+
+  // Points along an ellipse, for building outlines (angles run clockwise from
+  // three o'clock, because y points down).
+  const QUARTER = Math.PI / 2;
+  const arcPoints = (cx, cy, rx, ry, a0, a1, n) =>
+    Array.from({ length: n + 1 }, (v, i) => {
+      const t = a0 + ((a1 - a0) * i) / n;
+      return [cx + rx * Math.cos(t), cy + ry * Math.sin(t)];
+    });
+  // A half outline has to start and end exactly on the centre line.
+  const onAxis = (pts) => {
+    pts[0][0] = 0;
+    pts[pts.length - 1][0] = 0;
+    return pts;
+  };
+
+  // Half outline of a Camelot plate: an arch between two shoulders at the
+  // top, straight sides, and a shallower arc between shoulders at the bottom.
+  function camelotHalf(a, top, shoulderTop, wTop, shoulderBottom, bottom, wBottom) {
+    const f = 3.2; // the concave corner where an arch meets its shoulder
+    return onAxis([
+      ...arcPoints(0, shoulderTop - f, wTop, shoulderTop - f - top, -QUARTER, 0, 16),
+      ...arcPoints(wTop + f, shoulderTop - f, f, f, Math.PI, QUARTER, 4),
+      [a, shoulderTop],
+      [a, shoulderBottom],
+      ...arcPoints(wBottom + f, shoulderBottom + f, f, f, -QUARTER, -Math.PI, 4),
+      ...arcPoints(0, shoulderBottom + f, wBottom, bottom - shoulderBottom - f, 0, QUARTER, 16),
+    ]);
+  }
+
+  // Half outline of a panel that is arched on top and bowed along the bottom,
+  // and may taper between the two.
+  const archedHalf = (wTop, top, shoulderTop, wBottom, shoulderBottom, bottom) =>
+    onAxis([
+      ...arcPoints(0, shoulderTop, wTop, shoulderTop - top, -QUARTER, 0, 14),
+      ...arcPoints(0, shoulderBottom, wBottom, bottom - shoulderBottom, 0, QUARTER, 14),
+    ]);
+
+  const outlinePath = (half) => {
+    const f = (v) => +v.toFixed(2);
+    const right = half.map((p) => `${f(p[0])} ${f(p[1])}`);
+    const left = half.slice(1, -1).reverse().map((p) => `${f(-p[0])} ${f(p[1])}`);
+    return `<path d="M ${right.concat(left).join(" L ")} Z"/>`;
+  };
+
+  // Key plug: sits flush in its cylinder with a hairline gap around it.
+  // `pin` shows the brass of the first pin at the foot of the keyway.
+  const plug = (cx, cy, r, pin) => ({
+    cx, cy,
+    lift: 0,
+    rad: r,
+    mat: "body",
+    brush: spun(0, 0),
+    sdf: (x, y) => sdCircle(x, y, r),
+    h: (x, y, d) => fillet(d, 1.1, 0.7) + 1.6 * (1 - (x * x + y * y) / (r * r)),
+    occ: (x, y, d) => 1 - 0.72 * smooth((d + 1) / 0.8),
+    ink: (x, y, s) => {
+      let d = sdBox(x, y + 0.1 * r, 0.085 * r, 0.42 * r, 0.04 * r);
+      d = Math.min(d, sdCircle(x, y - 0.3 * r, 0.2 * r));
+      d = Math.min(d, sdBox(x + 0.13 * r, y - 0.1 * r, 0.1 * r, 0.085 * r, 0.04 * r));
+      return clamp01(0.5 - d * s);
+    },
+    pin: pin ? (x, y, s) => clamp01(0.5 - sdBox(x, y - 0.66 * r, 0.15 * r, 0.13 * r, 0.03 * r) * s) : null,
+  });
+
+  // Generic thumbturn: a pill standing `lift` above its seat. Drawn upright.
+  const paddle = (cx, cy, half, r, lift) => ({
+    cx, cy, lift,
+    rad: half + r,
+    mat: "trim",
+    brush: BRUSH_DOWN,
+    sdf: (x, y) => sdCapsule(x, y, half, r),
+    h: (x, y, d) => fillet(d, r * 0.5, r * 0.42),
+  });
+
+  // Level's thumbturn: a round knob with a raised grip bar across the middle
+  // and a finger scoop either side of it. Drawn with the bar upright.
+  const gripKnob = (r) => {
+    const bar = 0.14 * r; // half the width of the grip
+    const rim = 2.2; // the knob's edge stands a little proud of the scoops
+    const scoop = (x, d) => both(d + rim, bar - Math.abs(x), 6); // negative inside a scoop
+    return {
+      cx: 0, cy: 0,
+      lift: 8,
+      rad: r,
+      mat: "body",
+      brush: BRUSH_DOWN,
+      sdf: (x, y) => sdCircle(x, y, r),
+      h: (x, y, d) => {
+        if (d >= 0) return -3 * d;
+        const ax = Math.abs(x);
+        const edge = fillet(d, 1.6, 1.4);
+        const sc = scoop(x, d);
+        if (sc < 0) {
+          // Scoop: a floor that falls away from the bar, curving up at its edges.
+          const wall = sc > -2.6 ? 2.4 * (1 - Math.sqrt(1 - Math.pow(1 + sc / 2.6, 2))) : 0;
+          return edge + wall - 0.44 * (ax - bar);
+        }
+        // Bar: rounded across its width, running out to the rim at both ends.
+        const rise = ax < bar ? fillet(ax - bar, bar * 0.8, 7.5) * smooth(-d / 7) : 0;
+        return edge + 2.4 + rise;
+      },
+      // The bar shades the scoop on its far side and the corners where they meet.
+      occ: (x, y, d, ux, uy) => {
+        const sc = scoop(x, d);
+        if (sc >= 0) return 1;
+        // The light is low and to one side, so the bar's shadow reaches well across.
+        const reach = smooth(1 - (Math.abs(x) - bar) / (75 * Math.abs(ux) + 1));
+        // The near side also picks up light bounced off the bar.
+        const lit = x * ux > 0 ? 1 - 0.5 * reach : 1 + 0.3 * Math.min(1, Math.abs(ux) * 3) * reach;
+        return lit * (1 - 0.3 * Math.exp(sc / 2));
+      },
+    };
+  };
+
+  // Schlage's thumbturn: a tapered lever, narrow end up, standing on a low
+  // foot of the same shape that turns with it.
+  const lever = (cx, cy) => {
+    const foot = sdOutline(taper(-36.5, 10.4, 36, 13.8, 2), 2);
+    const grip = sdOutline(taper(-33, 7.9, 32, 11, 1.4), 1.4);
+    return {
+      cx, cy,
+      lift: 6,
+      rad: 39,
+      mat: "trim",
+      brush: BRUSH_DOWN,
+      sdf: foot,
+      h: (x, y, d) => {
+        if (d >= 0) return -3 * d;
+        const g = grip(x, y);
+        if (g >= 0) return fillet(d, 1.5, 1.3);
+        // Bevelled sides and a gently crowned top face that leans to the light.
+        return 1.3 + bevel(g, 3.6, 7) + (1.3 * (1 - (x * x) / 121) - 0.07 * x - 0.03 * y) * smooth(-g / 3.6);
+      },
+    };
+  };
+
+  // The Encode touchscreen legend: outlined numerals, the tap-to-unlock mark
+  // around the 5, and the home and lock keys either side of the 0.
+  function keypadFx(col, rows) {
+    const key = (i, x, y, body) => `<g class="key" style="--i:${i}" transform="translate(${x} ${y})">${body}</g>`;
+    const digit = (n, i, x, y) => key(i, x, y, `<text>${n}</text>`);
+    const outlined = (d, cls = "") => `<path class="rim ${cls}" d="${d}"/><path class="core" d="${d}"/>`;
+    const waves =
+      '<path class="wave" d="M -8.4 -4.4 A 6.2 6.2 0 0 0 -8.4 4.4 M -11.6 -6.4 A 9 9 0 0 0 -11.6 6.4 M 8.4 -4.4 A 6.2 6.2 0 0 1 8.4 4.4 M 11.6 -6.4 A 9 9 0 0 1 11.6 6.4"/>';
+    const home = outlined("M -7.2 0 L 0 -6.4 L 7.2 0 M -5.3 -1.5 V 6 H 5.3 V -1.5");
+    const padlock = `<g class="shackle">${outlined("M -3.5 -0.4 V -2.6 A 3.5 3.5 0 0 1 3.5 -2.6 V -0.4", "state")}</g>${outlined("M -5.8 -0.4 H 5.8 V 6 H -5.8 Z", "state")}`;
+    return `<g class="keys">
+        ${[1, 2, 3, 4, 5, 6, 7, 8, 9].map((n, i) => digit(n, i, ((i % 3) - 1) * col, rows[Math.floor(i / 3)])).join("")}
+        ${key(4, 0, rows[1], waves)}
+        ${key(9, -col, rows[3], home)}
+        ${digit(0, 10, 0, rows[3])}
+        <g class="padlock">${key(11, col, rows[3], padlock)}</g>
       </g>`;
   }
 
-  // Arched "Camelot" escutcheon outline.
-  function camelotPath(a, b, d) {
-    const f = (n) => +n.toFixed(2);
-    return `M ${f(-a)} ${f(-b + d)} C ${f(-a * 0.55)} ${f(-b + d * 0.95)} ${f(-a * 0.42)} ${f(-b)} 0 ${f(-b)} C ${f(a * 0.42)} ${f(-b)} ${f(a * 0.55)} ${f(-b + d * 0.95)} ${f(a)} ${f(-b + d)} L ${f(a)} ${f(b - d)} C ${f(a * 0.55)} ${f(b - d * 0.95)} ${f(a * 0.42)} ${f(b)} 0 ${f(b)} C ${f(-a * 0.42)} ${f(b)} ${f(-a * 0.55)} ${f(b - d * 0.95)} ${f(-a)} ${f(b - d)} Z`;
-  }
+  const MODELS = {
+    // A sloped bezel around a recessed centre. Outside, the centre is a glossy
+    // touch face with the key cylinder set below the middle; inside, it is a
+    // round knob with a grip bar.
+    level_lock_pro(style, view) {
+      const R = 84;
+      const rIn = 0.735 * R;
+      const bezel = {
+        ...annulus(rIn, R),
+        mat: "body",
+        z: 11,
+        brush: spun(0, 0),
+        // Rises from the door towards the middle, then rolls over into the recess.
+        h: (x, y) => {
+          const r = Math.sqrt(x * x + y * y);
+          const u = Math.min(1, (R - r) / (R - rIn));
+          return fillet(r - R, 3, 2.6) + 11 * Math.sin(u * 1.5708) + fillet(rIn - r, 1.8, 1.8) - 1.8;
+        },
+      };
+      const lip = {
+        ...annulus(0.692 * R, rIn + 0.5),
+        mat: "trim",
+        z: 6.3,
+        brush: spun(0, 0),
+        h: (x, y, d) => fillet(d, 0.9, 0.6) + 0.45 * (Math.sqrt(x * x + y * y) - 0.692 * R),
+      };
+      const out = { outline: (x, y) => sdCircle(x, y, R), halo: [R + 24, R + 24], ring: `<circle r="${R + 6}"/>` };
 
-  function escutcheon(u, style, a, b) {
-    if (style === "camelot") {
-      return `<path d="${camelotPath(a, b, 20)}" fill="url(#${u}-md)" stroke="var(--dlc-metal-dark)" stroke-width="1.2" filter="url(#${u}-soft)"/>
-        <path d="${camelotPath(a - 4.5, b - 4.5, 17)}" fill="none" stroke="var(--dlc-metal-light)" stroke-opacity=".55" stroke-width="1.2"/>
-        <path d="${camelotPath(a - 8, b - 8, 15)}" fill="none" stroke="var(--dlc-metal-dark)" stroke-opacity=".35" stroke-width=".8"/>`;
-    }
-    return `<rect x="${-a}" y="${-b}" width="${a * 2}" height="${b * 2}" rx="12" fill="url(#${u}-md)" stroke="var(--dlc-metal-dark)" stroke-width="1.2" filter="url(#${u}-soft)"/>
-      <rect x="${-a + 3.5}" y="${-b + 3.5}" width="${a * 2 - 7}" height="${b * 2 - 7}" rx="9.5" fill="none" stroke="var(--dlc-metal-light)" stroke-opacity=".5" stroke-width="1"/>`;
-  }
-
-  function outlineFor(style, a, b, pad) {
-    if (style === "camelot") return `<path d="${camelotPath(a + pad, b + pad, 22)}"/>`;
-    return `<rect x="${-a - pad}" y="${-b - pad}" width="${(a + pad) * 2}" height="${(b + pad) * 2}" rx="${12 + pad}"/>`;
-  }
-
-  const ledGlyph = (u, x, y) => `<g class="led" transform="translate(${x} ${y})" filter="url(#${u}-glow)">
-      <path class="led-shackle" d="M -2.9 -1.2 V -3.2 A 2.9 2.9 0 0 1 2.9 -3.2 V -1.2" fill="none" stroke-width="1.4"/>
-      <rect class="led-body" x="-4.1" y="-1.4" width="8.2" height="6" rx="1.3"/>
-    </g>`;
-
-  /** Each renderer draws around the lock centre (0,0) and returns:
-   *  body – SVG markup; py – y offset of the bolt axis; outline – ring shape. */
-  const RENDERERS = {
-    level_lock_pro(u, style, view) {
       if (view === "exterior") {
-        return {
-          py: 0,
-          outline: `<circle r="64"/>`,
-          body: `<circle r="58" fill="url(#${u}-mr)" stroke="var(--dlc-metal-dark)" stroke-width="1.2" filter="url(#${u}-soft)"/>
-            <circle r="54" fill="none" stroke="var(--dlc-metal-light)" stroke-opacity=".5" stroke-width="1"/>
-            <circle r="31" fill="url(#${u}-mi)" stroke="var(--dlc-metal-dark)" stroke-opacity=".5" stroke-width=".8"/>
-            ${cylinder(u, 25)}`,
+        const rf = 0.694 * R;
+        const seam = 0.355 * R;
+        const cy = 0.132 * R;
+        const face = {
+          ...disc(0, 0, rf),
+          mat: "glass",
+          z: 5.6,
+          // The lower segment is a separate piece, parted by a hairline.
+          h: (x, y) => -0.5 * Math.exp(-Math.pow((y - seam) / 0.4, 2)),
+          occ: (x, y) => 1 - 0.6 * Math.exp(-Math.pow((y - seam) / 0.32, 2)),
+          // A softbox reflected in the glass: a lit field with one hard edge.
+          glare: (x, y) => {
+            const lower = y > seam;
+            const edge = lower ? (x - 0.3 * rf) * 0.93 + (y - 0.54 * rf) * 0.36 : (x - 0.28 * rf) * 0.93 + (y + rf) * 0.36;
+            const fade = 1 - 0.5 * clamp01((y + rf) / (1.9 * rf));
+            return (lower ? 0.065 : 0.13) * fade * smooth(-edge / 2.6);
+          },
         };
+        const collar = {
+          ...disc(0, cy, 0.283 * R),
+          mat: "gloss",
+          z: 7.4,
+          h: (x, y, d) => fillet(d, 2.2, 1.8) - 1.3 * smooth((-d - 2.5) / 1),
+        };
+        return { ...out, layers: [face, lip, collar, bezel], turn: plug(0, cy, 0.238 * R, true), fx: "" };
       }
+
+      const well = { ...disc(0, 0, 0.7 * R), mat: "body", z: 5.6, h: () => 0, occ: () => 0.55 };
+      const dot = { ...disc(0, 0.668 * R, 1.5), mat: "gloss", z: 5.9, h: (x, y, d) => fillet(d, 1.5, 0.8) };
       return {
-        py: 0,
-        outline: `<circle r="70"/>`,
-        body: `<circle r="64" fill="url(#${u}-mr)" stroke="var(--dlc-metal-dark)" stroke-width="1.2" filter="url(#${u}-soft)"/>
-          <circle r="60" fill="none" stroke="var(--dlc-metal-light)" stroke-opacity=".55" stroke-width="1"/>
-          <circle r="24" fill="url(#${u}-mi)" stroke="var(--dlc-metal-dark)" stroke-opacity=".55" stroke-width=".8"/>
-          ${thumbturn(u, { len: 96, w: 15, slim: true })}`,
+        ...out,
+        layers: [well, dot, lip, bezel],
+        turn: gripKnob(0.638 * R),
+        fx: `<circle class="led-dot" cy="${(0.668 * R).toFixed(1)}" r="0.75"/>`,
       };
     },
 
-    schlage_encode_plus(u, style, view) {
+    // Keypad deadbolt. Century is a bevelled slab; Camelot is an arched plate
+    // with a raised rim. Inside, a battery cover sits above a tapered lever.
+    schlage_encode_plus(style, view) {
       const camelot = style === "camelot";
-      const a = camelot ? 45 : 44;
-      const b = camelot ? 104 : 100;
+
       if (view === "interior") {
-        const py = 54;
+        const a = 52;
+        const b = 100;
+        const seam = 21;
+        const half = camelot ? camelotHalf(a, -b, -86, 40.5, 80, b, 45) : null;
+        const shape = camelot ? sdOutline(half, 0) : (x, y) => sdBox(x, y, a, b, 2.4);
+        // The raised panel below the seam, bevelled down to the edges: broad
+        // facets that widen towards the foot of the housing.
+        const panel = camelot
+          ? sdOutline(onAxis([[0, seam - 4], [52.5, seam - 4], ...arcPoints(0, 75, 41, 9.5, 0, QUARTER, 12)]), 0)
+          : sdOutline(taper(seam - 4, 52.5, 86, 46, 2), 2);
+        const base = {
+          box: [-a, -b, a, b],
+          sdf: shape,
+          mat: "body",
+          z: 10,
+          brush: BRUSH_DOWN,
+          h: (x, y, d) => (d >= 0 ? -3 * d : loft(d, panel(x, y), fillet(d, 1.2, 1), 5)),
+        };
+        // The battery cover is black whatever the finish.
+        const edge = camelot ? (x) => seam + 11 * (1 - (x * x) / (a * a)) : () => seam;
+        const cover = {
+          box: [-a, -b, a, seam + 12],
+          sdf: (x, y) => both(shape(x, y), y - edge(x), 0.5),
+          mat: "cover",
+          z: 11.6,
+          h: (x, y, d) => fillet(d, 1.5, 1.3) + (camelot ? 3.4 : 1.2) * (1 - (x * x) / (a * a)),
+        };
         return {
-          py,
-          outline: outlineFor(style, a, b, 6),
-          body: `${escutcheon(u, style, a, b)}
-            <path d="M ${-a + 12} -34 H ${a - 12}" stroke="var(--dlc-metal-dark)" stroke-opacity=".35" stroke-width="1"/>
-            <path d="M ${-a + 12} -33 H ${a - 12}" stroke="var(--dlc-metal-light)" stroke-opacity=".35" stroke-width="1"/>
-            <g opacity=".55">${[-12, -6, 0, 6, 12].map((x) => `<circle cx="${x}" cy="-62" r="1.5" fill="var(--dlc-metal-dark)"/>`).join("")}</g>
-            ${ledGlyph(u, 0, -80)}
-            <g transform="translate(0 ${py})">
-              <circle r="27" fill="url(#${u}-mi)" stroke="var(--dlc-metal-dark)" stroke-opacity=".5" stroke-width=".8"/>
-              ${thumbturn(u, { len: 70, w: 22 })}
-            </g>`,
+          layers: [base, cover],
+          outline: shape,
+          turn: lever(0, seam),
+          halo: [a + 30, b + 12],
+          ring: camelot ? outlinePath(camelotHalf(a + 6, -b - 6, -92, 44, 86, b + 6, 48.5)) : `<rect x="${-a - 6}" y="${-b - 6}" width="${a * 2 + 12}" height="${b * 2 + 12}" rx="7"/>`,
+          fx: "",
         };
       }
-      const py = 74;
-      const keys = [1, 2, 3, 4, 5, 6, 7, 8, 9, 0]
-        .map((n, i) => {
-          const x = i === 9 ? 0 : ((i % 3) - 1) * 18;
-          const y = i === 9 ? 33 : -38 + Math.floor(i / 3) * 23.5;
-          return `<text class="key" style="--i:${i}" x="${x}" y="${y}">${n}</text>`;
-        })
-        .join("");
+
+      const a = 57;
+      const rows = [-49.8, -31.5, -13.3, 4.9];
+      const cy = 57;
+      if (camelot) {
+        const half = camelotHalf(a, -96, -75.5, 47.5, 68.8, 96, 46);
+        const shape = sdOutline(half, 0);
+        const screen = sdOutline(archedHalf(43.8, -73.4, -60.8, 43.8, 12.3, 21), 2);
+        // The opening the screen sits in, cut deeper along its lower edge.
+        const opening = (x, y) => Math.min(screen(x, y) - 2.4, screen(x, y - 5.6) - 2);
+        const plate = {
+          box: [-a, -96, a, 96],
+          sdf: shape,
+          mat: "body",
+          z: 8,
+          brush: BRUSH_DOWN,
+          h: (x, y, d) => {
+            if (d >= 0) return -3 * d;
+            // The edge is a plain bevel that follows the outline and deepens at the foot.
+            const u = Math.min(1, -d / (7.5 + 8.5 * smooth((y - 52) / 34)));
+            const top = 6 * (u + 0.28 * u * (1 - u));
+            const inside = opening(x, y);
+            if (inside >= 0) return top;
+            const toScreen = Math.max(0, screen(x, y));
+            return top - 2 * (1 - toScreen / (toScreen - inside));
+          },
+        };
+        const glass = { box: [-46, -76, 46, 24], sdf: screen, mat: "screen", z: 8.2, h: (x, y, d) => fillet(d, 0.8, 0.4), occ: (x, y, d) => 1 - 0.35 * Math.exp(d / 1.6) };
+        const collar = { ...disc(0, cy, 12.2), mat: "trim", z: 10.6, brush: spun(0, cy), h: (x, y, d) => fillet(d, 2, 1.7) - 1.1 * smooth((-d - 2.1) / 0.9) };
+        return {
+          layers: [plate, glass, collar],
+          outline: shape,
+          turn: plug(0, cy, 9.6),
+          halo: [a + 30, 110],
+          ring: outlinePath(camelotHalf(a + 6, -102, -81.5, 50.5, 74.8, 102, 49)),
+          fx: keypadFx(29, rows),
+        };
+      }
+
+      const b = 95;
+      // The raised field: a narrow border around the screen that widens into
+      // deep bevels towards the foot of the plate.
+      const field = sdOutline([[0, -85.5], [48, -85.5], [48, 20.4], [42.5, 77.5], [0, 77.5]], 1.5);
+      const plate = {
+        ...slab(0, 0, a, b, 2.6),
+        mat: "body",
+        z: 8,
+        brush: BRUSH_DOWN,
+        h: (x, y, d) => (d >= 0 ? -3 * d : loft(d, field(x, y), fillet(d, 1.2, 1), 6)),
+      };
+      const glass = { ...slab(0, -29.6, 45.5, 50, 2.7), mat: "screen", z: 8.3, h: (x, y, d) => fillet(d, 0.8, 0.4), occ: (x, y, d) => 1 - 0.3 * Math.exp(d / 1.6) };
+      const collar = { ...disc(0, cy, 12.5), mat: "gloss", z: 9.6, h: (x, y, d) => fillet(d, 2, 1.6) - 1.1 * smooth((-d - 2.2) / 0.9) };
       return {
-        py,
-        outline: outlineFor(style, a, b, 6),
-        body: `${escutcheon(u, style, a, b)}
-          <rect x="-25" y="-90" width="50" height="20" rx="10" fill="url(#${u}-mv)" stroke="var(--dlc-metal-dark)" stroke-width=".8"/>
-          ${ledGlyph(u, 0, -80.5)}
-          <rect x="-32" y="-62" width="64" height="110" rx="8" fill="url(#${u}-glass)" stroke="#000" stroke-opacity=".55" stroke-width="1"/>
-          <path d="M -30 -46 L -30 -54 Q -30 -60 -24 -60 L 8 -60 Z" fill="#fff" opacity=".08"/>
-          <g class="keys">${keys}</g>
-          <g transform="translate(0 ${py})">${cylinder(u, 15.5)}</g>`,
+        layers: [plate, glass, collar],
+        turn: plug(0, cy, 9.9),
+        halo: [a + 30, b + 14],
+        ring: `<rect x="${-a - 6}" y="${-b - 6}" width="${a * 2 + 12}" height="${b * 2 + 12}" rx="7.5"/>`,
+        fx: keypadFx(29, rows),
       };
     },
 
-    deadbolt(u, style, view) {
+    deadbolt(style, view) {
       const square = style === "square";
-      const rose = square
-        ? `<rect x="-54" y="-54" width="108" height="108" rx="14" fill="url(#${u}-md)" stroke="var(--dlc-metal-dark)" stroke-width="1.2" filter="url(#${u}-soft)"/>
-           <rect x="-49" y="-49" width="98" height="98" rx="10" fill="none" stroke="var(--dlc-metal-light)" stroke-opacity=".5" stroke-width="1"/>
-           <rect x="-43" y="-43" width="86" height="86" rx="8" fill="none" stroke="var(--dlc-metal-dark)" stroke-opacity=".3" stroke-width=".8"/>`
-        : `<circle r="56" fill="url(#${u}-mr)" stroke="var(--dlc-metal-dark)" stroke-width="1.2" filter="url(#${u}-soft)"/>
-           <circle r="51" fill="none" stroke="var(--dlc-metal-light)" stroke-opacity=".5" stroke-width="1"/>
-           <circle r="45" fill="none" stroke="var(--dlc-metal-dark)" stroke-opacity=".3" stroke-width=".8"/>`;
-      const outline = square ? `<rect x="-60" y="-60" width="120" height="120" rx="20"/>` : `<circle r="62"/>`;
-      if (view === "exterior") {
-        return { py: 0, outline, body: `${rose}${cylinder(u, 24)}` };
-      }
-      return {
-        py: 0,
-        outline,
-        body: `${rose}<circle r="22" fill="url(#${u}-mi)" stroke="var(--dlc-metal-dark)" stroke-opacity=".5" stroke-width=".8"/>
-          ${thumbturn(u, { len: 74, w: 22 })}`,
+      const S = square ? 64 : 70;
+      const body = square
+        ? { ...slab(0, 0, S, S, 13), h: (x, y, d) => bevel(d, 5.5, 4.4) + 1.5 * smooth((-d - 11) / 2.4) }
+        : { ...disc(0, 0, S), h: (x, y, d) => fillet(d, 8.5, 6.5) + 1.8 * smooth((-d - 14) / 2.6) + 1.2 * (1 - (x * x + y * y) / (S * S)) };
+      Object.assign(body, { mat: "body", z: 9, brush: square ? BRUSH_DOWN : spun(0, 0) });
+      const out = {
+        halo: [S + 32, S + 32],
+        ring: square ? `<rect x="${-S - 7}" y="${-S - 7}" width="${S * 2 + 14}" height="${S * 2 + 14}" rx="20"/>` : `<circle r="${S + 7}"/>`,
+        fx: "",
       };
+      if (view === "exterior") {
+        const collar = {
+          ...disc(0, 0, 30),
+          mat: "trim",
+          z: 13,
+          brush: spun(0, 0),
+          h: (x, y, d) => fillet(d, 8, 5) - 1.2 * smooth((-d - 7.4) / 1.6),
+        };
+        return { ...out, layers: [body, collar], turn: plug(0, 0, 19) };
+      }
+      const seat = { ...disc(0, 0, 20), mat: "trim", z: 11.2, brush: spun(0, 0), h: (x, y, d) => fillet(d, 3.4, 2.4) };
+      return { ...out, layers: [body, seat], turn: paddle(0, 0, 22, 11, 9) };
     },
   };
 
-  function doorLayer(u, boltY, width, side) {
-    // The bolt is clipped at the door edge so it stays hidden "inside" the
-    // door even when door_color is translucent.
-    const g = `
-      <clipPath id="${u}-boltclip"><rect x="200" y="-400" width="1000" height="1020"/></clipPath>
-      <rect class="frame" x="208" y="-400" width="1000" height="1020"/>
-      <rect class="frame-edge" x="208" y="-400" width="3" height="1020"/>
-      <rect x="212" y="${boltY - 23}" width="18" height="46" rx="3" fill="url(#${u}-mv)" stroke="var(--dlc-metal-dark)" stroke-width=".8"/>
-      <rect class="strike-hole" x="215.5" y="${boltY - 9.5}" width="11" height="19" rx="2"/>
-      <rect class="door-panel" x="-1000" y="-400" width="1200" height="1020"/>
-      <rect class="door-edge" x="195" y="-400" width="5" height="1020"/>
-      <g clip-path="url(#${u}-boltclip)"><g class="bolt"><rect x="164" y="${boltY - 7.5}" width="36" height="15" rx="3" fill="url(#${u}-mv)" stroke="var(--dlc-metal-dark)" stroke-width=".8"/></g></g>`;
-    return side === "left" ? `<g class="door" transform="translate(${width} 0) scale(-1 1)">${g}</g>` : `<g class="door">${g}</g>`;
+  const modelCache = new Map();
+  function lockModel(type, style, view) {
+    const key = `${type}|${style}|${view}`;
+    if (!modelCache.has(key)) modelCache.set(key, (MODELS[type] || MODELS.deadbolt)(style, view));
+    return modelCache.get(key);
   }
 
-  function buildArt(u, r) {
-    const renderer = RENDERERS[r.type] || RENDERERS.deadbolt;
-    const art = renderer(u, r.style, r.view);
-    const width = r.showDoor ? 250 : 208;
-    const cx = r.showDoor && r.doorSide === "left" ? width - 104 : 104;
-    const boltY = ART_CY + art.py;
-    return `<svg class="art" viewBox="0 0 ${width} ${ART_H}" preserveAspectRatio="xMidYMid meet" aria-hidden="true" focusable="false">
-      ${svgDefs(u)}
-      ${r.showDoor ? doorLayer(u, boltY, width, r.doorSide) : ""}
-      <g transform="translate(${cx} ${ART_CY})">
-        <circle class="halo" r="80" filter="url(#${u}-blur)"/>
-        <g class="shake">
-          ${art.body}
-          ${r.showIndicator ? `<g class="ring">${art.outline}</g>` : ""}
-          <g class="burst">${art.outline}</g>
-        </g>
-      </g>
-    </svg>`;
+  // Rendered bases are shared between cards that show the same lock.
+  const baseCache = new Map();
+  function lockBase(key, make) {
+    let base = baseCache.get(key);
+    if (base) baseCache.delete(key);
+    else base = make();
+    baseCache.set(key, base);
+    if (baseCache.size > 16) baseCache.delete(baseCache.keys().next().value);
+    return base;
+  }
+
+  // One render per frame at most, so a dashboard full of locks stays smooth.
+  const renderQueue = [];
+  let renderFrame = 0;
+  function queueRender(card) {
+    if (!renderQueue.includes(card)) renderQueue.push(card);
+    if (!renderFrame) renderFrame = requestAnimationFrame(drainRenders);
+  }
+  function drainRenders() {
+    renderFrame = 0;
+    const start = performance.now();
+    while (renderQueue.length && performance.now() - start < 8) renderQueue.shift()._renderArt();
+    if (renderQueue.length) renderFrame = requestAnimationFrame(drainRenders);
+  }
+
+  // Rotation of the thumbturn / key plug for each pose, in radians.
+  const DEG = Math.PI / 180;
+  const POSE_ANGLE = {
+    unlocked: 0,
+    locked: 90 * DEG,
+    locking: 62 * DEG,
+    unlocking: 28 * DEG,
+    jammed: 44 * DEG,
+    open: -22 * DEG,
+    opening: -22 * DEG,
+    unknown: 0,
+  };
+
+  const REDUCED_MOTION = window.matchMedia ? window.matchMedia("(prefers-reduced-motion: reduce)") : { matches: false };
+
+  function artMarkup(model, showRing) {
+    const pct = (v) => `${((v / ART) * 100).toFixed(1)}%`;
+    return `<div class="art" style="--dlc-halo:${pct(model.halo[0])} ${pct(model.halo[1])}">
+      <div class="halo"></div>
+      <div class="shake">
+        <canvas class="lock"></canvas>
+        <svg class="fx" viewBox="${-HALF} ${-HALF} ${ART} ${ART}" aria-hidden="true" focusable="false">
+          ${model.fx}
+          ${showRing ? `<g class="ring">${model.ring}</g>` : ""}
+          <g class="burst">${model.ring}</g>
+        </svg>
+      </div>
+    </div>`;
   }
 
   /* ------------------------------------------------------------------ */
@@ -369,8 +1250,6 @@
       --dlc-duration: 700ms;
       --dlc-ease: cubic-bezier(.65, 0, .35, 1);
       --dlc-text: var(--primary-text-color, #212121);
-      --dlc-door-color: color-mix(in srgb, var(--dlc-text) 6%, transparent);
-      --dlc-frame-color: color-mix(in srgb, var(--dlc-text) 12%, transparent);
     }
     ha-card {
       height: 100%;
@@ -486,12 +1365,18 @@
     .layout-horizontal .stage { align-self: stretch; height: auto; min-height: var(--dlc-art-size, 150px); }
     .layout-horizontal .stage .art { height: var(--dlc-art-size, 150px); }
     .layout-horizontal .stage.has-images { width: var(--dlc-art-size, 150px); }
-    .layout-compact .stage { height: var(--dlc-art-size, 60px); width: var(--dlc-art-size, 60px); border-radius: 50%; }
+    .layout-compact .stage { height: var(--dlc-art-size, 60px); width: var(--dlc-art-size, 60px); border-radius: 10px; }
     .stage.no-tap { cursor: default; }
     .stage:focus-visible { box-shadow: 0 0 0 2px var(--primary-color, #03a9f4) inset; }
-    .art { height: 100%; width: auto; max-width: none; display: block; overflow: visible; }
-    .layout-compact .art { height: 100%; width: 100%; }
-    .art text { font-family: var(--ha-font-family-body, Roboto, system-ui, sans-serif); }
+    .art { position: relative; flex: none; height: 100%; aspect-ratio: 1 / 1; }
+    .shake { position: absolute; inset: 0; transition: transform .16s ease-out; }
+    .pressed .shake { transform: scale(.972); }
+    .shake.thunk { animation: dlc-thunk .26s ease-out; }
+    .lock, .fx { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+    .lock { opacity: 0; transition: opacity .3s ease; }
+    .lock.ready { opacity: 1; }
+    .fx { overflow: visible; pointer-events: none; }
+    .fx text { font-family: var(--ha-font-family-body, Roboto, system-ui, sans-serif); }
 
     .hint {
       position: absolute;
@@ -514,26 +1399,25 @@
     .armed-stage .hint { opacity: 1; transform: translate(-50%, 0); }
     .layout-compact .hint { display: none; }
 
-    /* ---------- illustration ---------- */
-    .door-panel { fill: var(--dlc-door-color); }
-    .door-edge { fill: color-mix(in srgb, var(--dlc-text) 7%, transparent); }
-    .frame { fill: var(--dlc-frame-color); }
-    .frame-edge { fill: color-mix(in srgb, var(--dlc-text) 10%, transparent); }
-    .strike-hole { fill: color-mix(in srgb, var(--dlc-metal-dark) 55%, #000); }
-    .keyhole { fill: color-mix(in srgb, var(--dlc-metal-dark) 45%, #000); }
-
+    /* ---------- lock art ---------- */
+    /* The glow the status light throws on the wall behind the lock. */
     .halo {
-      fill: var(--dlc-state);
-      opacity: .26;
-      transition: fill var(--dlc-duration) ease, opacity .5s ease;
+      position: absolute;
+      inset: 0;
+      background-color: var(--dlc-state);
+      -webkit-mask-image: radial-gradient(ellipse var(--dlc-halo, 50% 50%) at center, #000 0%, rgba(0, 0, 0, .5) 48%, transparent 100%);
+      mask-image: radial-gradient(ellipse var(--dlc-halo, 50% 50%) at center, #000 0%, rgba(0, 0, 0, .5) 48%, transparent 100%);
+      opacity: .24;
+      transition: background-color var(--dlc-duration) ease, opacity .5s ease;
     }
     .pose-unknown .halo { opacity: .08; }
     .ring {
       fill: none;
       stroke: var(--dlc-state);
-      stroke-width: 2.4;
+      stroke-width: 1.3;
       opacity: .9;
-      transition: stroke var(--dlc-duration) ease, opacity .4s ease;
+      filter: drop-shadow(0 0 1.6px var(--dlc-state));
+      transition: stroke var(--dlc-duration) ease, filter var(--dlc-duration) ease, opacity .4s ease;
     }
     .pose-unknown .ring { opacity: .35; }
     .burst {
@@ -545,42 +1429,37 @@
       transform-origin: center;
       pointer-events: none;
     }
-    .burst.go { animation: dlc-burst .95s ease-out; }
+    .burst.go { animation: dlc-burst .8s ease-out; }
 
-    .led-body { fill: var(--dlc-state); transition: fill var(--dlc-duration) ease; }
-    .led-shackle { stroke: var(--dlc-state); transition: stroke var(--dlc-duration) ease, transform var(--dlc-duration) var(--dlc-ease); transform-box: fill-box; transform-origin: right bottom; }
-    .pose-unlocked .led-shackle, .pose-open .led-shackle, .pose-unlocking .led-shackle, .pose-opening .led-shackle { transform: translateY(-1.3px); }
+    /* Lit parts: the touchscreen legend and the small status light. */
+    .led-dot { fill: var(--dlc-state); filter: drop-shadow(0 0 1.4px var(--dlc-state)); transition: fill var(--dlc-duration) ease, filter var(--dlc-duration) ease; }
 
-    .key {
-      fill: color-mix(in srgb, var(--dlc-state) 30%, #eaf4ff);
-      opacity: .45;
-      font-size: 13px;
-      font-weight: 500;
+    /* The legend is drawn the way it is printed: light outlines on dark glass. */
+    .keys { --dlc-legend: #ece6d6; --dlc-glass: #1e1f22; filter: drop-shadow(0 0 .7px rgba(255, 238, 200, .35)); }
+    .key { opacity: .84; transition: opacity .35s ease; }
+    .key text {
+      fill: var(--dlc-glass);
+      stroke: var(--dlc-legend);
+      stroke-width: .62;
+      stroke-linejoin: round;
+      font-size: 16.5px;
+      font-weight: 600;
       text-anchor: middle;
       dominant-baseline: central;
-      transition: fill var(--dlc-duration) ease, opacity .4s ease;
     }
-    .keys.flash .key { animation: dlc-keyflash 2.6s ease-out both; animation-delay: calc(var(--i) * 45ms); }
-    .pending .key { animation: dlc-keypulse 1.3s ease-in-out infinite; animation-delay: calc(var(--i) * 90ms); }
-
-    .turn {
-      transform-box: fill-box;
-      transform-origin: center;
-      transform: rotate(0deg);
-      transition: transform var(--dlc-duration) var(--dlc-ease);
-    }
-    .pose-locked .turn { transform: rotate(calc(90deg * var(--dlc-dir, 1))); }
-    .pose-locking .turn { transform: rotate(calc(58deg * var(--dlc-dir, 1))); }
-    .pose-unlocking .turn { transform: rotate(calc(32deg * var(--dlc-dir, 1))); }
-    .pose-jammed .turn { transform: rotate(calc(45deg * var(--dlc-dir, 1))); }
-    .pose-open .turn, .pose-opening .turn { transform: rotate(calc(-25deg * var(--dlc-dir, 1))); }
-
-    .bolt { transition: transform var(--dlc-duration) var(--dlc-ease); }
-    .pose-locked .bolt { transform: translateX(22px); }
-    .pose-locking .bolt { transform: translateX(14px); }
-    .pose-unlocking .bolt { transform: translateX(8px); }
-    .pose-jammed .bolt { transform: translateX(11px); }
-    .pose-open .bolt, .pose-opening .bolt { transform: translateX(-6px); }
+    .key path { fill: none; stroke-linecap: round; stroke-linejoin: round; }
+    .key .rim { stroke: var(--dlc-legend); stroke-width: 2.7; }
+    .key .core { stroke: var(--dlc-glass); stroke-width: 1.5; }
+    .key .wave { stroke: var(--dlc-legend); stroke-width: .62; }
+    /* The lock key carries the state colour, and its shackle lifts when unlocked. */
+    .key .state { stroke: color-mix(in srgb, var(--dlc-state) 62%, #ece6d6); transition: stroke var(--dlc-duration) ease; }
+    .shackle { transition: transform var(--dlc-duration) var(--dlc-ease); }
+    .pose-unlocked .shackle, .pose-open .shackle, .pose-unlocking .shackle, .pose-opening .shackle { transform: translate(1.6px, -2.6px) rotate(24deg); }
+    /* Like the real keypad, it wakes when you reach for it. */
+    .stage:hover .key, .pressed .key { opacity: 1; }
+    .keys.flash .key { animation: dlc-keyflash 2.2s ease-out both; animation-delay: calc(var(--i) * 40ms); }
+    .pending .key { animation: dlc-keypulse 1.3s ease-in-out infinite; animation-delay: calc(var(--i) * 80ms); }
+    .pose-jammed .padlock .key { animation: dlc-blink 1s step-end infinite; }
 
     .pending .halo { animation: dlc-halo 1.2s ease-in-out infinite; }
     .pending .ring { stroke-dasharray: 12 9; animation: dlc-march .8s linear infinite; }
@@ -687,9 +1566,10 @@
 
     .no-anim, .no-anim * { transition: none !important; animation: none !important; }
 
-    @keyframes dlc-burst { 0% { opacity: .85; transform: scale(1); } 100% { opacity: 0; transform: scale(1.32); } }
-    @keyframes dlc-keyflash { 0% { opacity: .45; } 12% { opacity: 1; } 65% { opacity: 1; } 100% { opacity: .45; } }
-    @keyframes dlc-keypulse { 0%, 100% { opacity: .35; } 50% { opacity: 1; } }
+    @keyframes dlc-burst { 0% { opacity: .85; transform: scale(1); } 100% { opacity: 0; transform: scale(1.14); } }
+    @keyframes dlc-thunk { 0% { transform: scale(1); } 28% { transform: scale(.984) translateY(.7px); } 100% { transform: scale(1); } }
+    @keyframes dlc-keyflash { 0% { opacity: .84; } 8% { opacity: .25; } 22% { opacity: 1; } 70% { opacity: 1; } 100% { opacity: .84; } }
+    @keyframes dlc-keypulse { 0%, 100% { opacity: .3; } 50% { opacity: 1; } }
     @keyframes dlc-halo { 0%, 100% { opacity: .18; } 50% { opacity: .45; } }
     @keyframes dlc-march { to { stroke-dashoffset: -21; } }
     @keyframes dlc-shake { 0%, 100% { transform: translateX(0); } 25% { transform: translateX(-3.5px); } 75% { transform: translateX(3.5px); } }
@@ -699,7 +1579,8 @@
 
     @media (prefers-reduced-motion: reduce) {
       .pending .halo, .pending .ring, .pending .key, .pose-jammed .shake, .pose-jammed .images,
-      .pose-jammed .ring, .btn.armed, .pending .images.pulse .layer:last-child { animation: none; }
+      .pose-jammed .ring, .pose-jammed .padlock .key, .shake.thunk, .btn.armed,
+      .pending .images.pulse .layer:last-child { animation: none; }
     }
   `;
 
@@ -721,13 +1602,18 @@
     constructor() {
       super();
       this.attachShadow({ mode: "open" });
-      this._uid = "dlc" + Math.random().toString(36).slice(2, 9);
       this._pending = null;
       this._armed = null;
       this._error = null;
       this._displayState = null;
       this._sig = null;
       this._buildKey = null;
+      // Lock art: the rotating part, the pointer torch and the frame loop.
+      this._turn = { angle: 0, vel: 0, target: 0, pending: false, still: false, wobble: 0, cheer: 0, rate: 8, last: 0 };
+      this._torch = { x: 0, y: 0, k: 0, goalX: 0, goalY: 0, goal: 0 };
+      this._sweep = 0;
+      this._frame = this._frame.bind(this);
+      this._onResize = () => this._el && this._el.canvas && queueRender(this);
     }
 
     setConfig(config) {
@@ -761,8 +1647,11 @@
 
     connectedCallback() {
       this._timer = setInterval(() => this._updateChanged(), 30000);
+      window.addEventListener("resize", this._onResize);
       this._sig = null;
       this._render();
+      this._watchArt();
+      if (this._model) this._wake();
     }
 
     disconnectedCallback() {
@@ -772,6 +1661,10 @@
       clearTimeout(this._errorTimer);
       clearTimeout(this._holdTimer);
       clearTimeout(this._dblTimer);
+      window.removeEventListener("resize", this._onResize);
+      if (this._resizeObserver) this._resizeObserver.disconnect();
+      cancelAnimationFrame(this._raf);
+      this._raf = 0;
     }
 
     getCardSize() {
@@ -815,8 +1708,6 @@
         images,
         hasImages,
         artSize,
-        doorSide: c.door_side === "left" ? "left" : "right",
-        showDoor: c.show_door !== undefined ? !!c.show_door : layout !== "compact",
         showIndicator: !!opt("show_indicator"),
         showName: !!opt("show_name"),
         showStatus: !!opt("show_status"),
@@ -833,17 +1724,33 @@
       };
     }
 
-    _palette(r) {
+    // The finish to render, and a key that names it in the render cache.
+    _finish(r) {
       if (r.finish === "custom" && r.customColor) {
-        const c = r.customColor;
-        return {
-          base: c,
-          light: `color-mix(in srgb, ${c} 50%, white)`,
-          dark: `color-mix(in srgb, ${c} 50%, black)`,
-          detail: `color-mix(in srgb, ${c} 45%, gray)`,
-        };
+        const rgb = this._resolveColor(r.customColor);
+        if (rgb) return { key: `rgb${rgb.join(",")}`, spec: customFinish(rgb) };
       }
-      return FINISHES[r.finish] || FINISHES[LOCK_TYPES[r.type].finish];
+      const name = FINISHES[r.finish] ? r.finish : LOCK_TYPES[r.type].finish;
+      return { key: name, spec: FINISHES[name] };
+    }
+
+    // Any CSS colour (including a theme variable) → [r, g, b].
+    _resolveColor(css) {
+      try {
+        const probe = document.createElement("span");
+        probe.style.color = css;
+        if (!probe.style.color) return null;
+        this.shadowRoot.appendChild(probe);
+        const resolved = getComputedStyle(probe).color || css;
+        probe.remove();
+        const ctx = document.createElement("canvas").getContext("2d", { willReadFrequently: true });
+        ctx.fillStyle = "#000";
+        ctx.fillStyle = resolved;
+        ctx.fillRect(0, 0, 1, 1);
+        return [...ctx.getImageData(0, 0, 1, 1).data.slice(0, 3)];
+      } catch (e) {
+        return null;
+      }
     }
 
     /* ----- rendering ----- */
@@ -874,9 +1781,8 @@
 
     _build(r) {
       const root = this.shadowRoot;
-      const stage = r.hasImages
-        ? `<div class="images t-${r.transition}"></div>`
-        : buildArt(this._uid, r);
+      this._model = r.hasImages ? null : lockModel(r.type, r.style, r.view);
+      const stage = this._model ? artMarkup(this._model, r.showIndicator) : `<div class="images t-${r.transition}"></div>`;
       root.innerHTML = `<style>${STYLE}</style>
         <ha-card class="layout-${r.layout}${r.showButtons ? " has-actions" : ""} no-anim">
           <div class="header"${r.showName ? "" : " hidden"}>
@@ -906,6 +1812,9 @@
         battFill: $(".batt-fill"),
         stage: $(".stage"),
         images: $(".images"),
+        art: $(".art"),
+        shake: $(".shake"),
+        canvas: $(".lock"),
         hint: $(".hint"),
         status: $(".status"),
         statusIcon: $(".status-icon"),
@@ -922,21 +1831,22 @@
       this._imgSrc = null;
       this._displayState = null;
       this._sig = null;
+      // The canvas is new, so whatever was painted on the old one is gone.
+      this._base = null;
+      this._baseKey = null;
+      this._ctx = null;
+      this._torch.k = this._torch.goal = 0;
+      this._sweep = 0;
+      this._turn.cheer = 0;
 
       // Theme variables derived from the config.
       const host = this.style;
-      const pal = this._palette(r);
-      host.setProperty("--dlc-metal-base", pal.base);
-      host.setProperty("--dlc-metal-light", pal.light);
-      host.setProperty("--dlc-metal-dark", pal.dark);
-      host.setProperty("--dlc-metal-detail", pal.detail);
       // Only set inline when configured, so themes / card-mod can override it.
       if (this._config.animation_duration !== undefined && this._config.animation_duration !== "") {
         host.setProperty("--dlc-duration", `${r.duration}ms`);
       } else {
         host.removeProperty("--dlc-duration");
       }
-      host.setProperty("--dlc-dir", r.doorSide === "left" ? "-1" : "1");
       host.setProperty("--dlc-art-size", `${r.artSize}px`);
       host.setProperty("--dlc-image-fit", r.imageFit);
       const colorVars = {
@@ -945,8 +1855,6 @@
         jammed_color: "--dlc-jammed",
         pending_color: "--dlc-pending",
         unavailable_color: "--dlc-unavailable",
-        door_color: "--dlc-door-color",
-        frame_color: "--dlc-frame-color",
       };
       for (const [k, v] of Object.entries(colorVars)) {
         const col = cssColor(this._config[k]);
@@ -955,8 +1863,198 @@
       }
 
       this._bindEvents();
+      this._watchArt();
       // Let the first paint happen without transitions, then enable them.
       requestAnimationFrame(() => requestAnimationFrame(() => this._el && this._el.card.classList.remove("no-anim")));
+    }
+
+    /* ----- lock art ----- */
+
+    // Re-render whenever the art box gets a size or changes it.
+    _watchArt() {
+      if (this._resizeObserver) this._resizeObserver.disconnect();
+      const art = this._el && this._el.art;
+      if (!art || !this.isConnected) return;
+      if (window.ResizeObserver) {
+        this._resizeObserver = new ResizeObserver(() => queueRender(this));
+        this._resizeObserver.observe(art);
+      }
+      queueRender(this);
+    }
+
+    // Draws everything that stays still. Called from the render queue.
+    _renderArt() {
+      const el = this._el;
+      const r = this._r;
+      if (!el || !el.canvas || !r || !this._model || !this.isConnected) return;
+      const size = el.art.clientHeight;
+      if (!size) return; // not laid out yet; the resize observer calls back
+      const px = Math.max(48, Math.min(640, Math.round(size * Math.min(window.devicePixelRatio || 1, 2.5))));
+      const finish = this._finish(r);
+      const key = [r.type, r.style, r.view, finish.key, px].join("|");
+      if (key === this._baseKey) return;
+      this._baseKey = key;
+      this._mats = materialsFor(finish.spec);
+      this._base = lockBase(key, () => renderBase(this._model, this._mats, px));
+      el.canvas.width = el.canvas.height = px;
+      this._ctx = el.canvas.getContext("2d");
+      this._img = this._ctx.createImageData(px, px);
+      this._lit = true; // forces a full repaint
+      this._paint();
+      el.canvas.classList.add("ready");
+    }
+
+    // Composes one frame: the base, the torch if it is on, and the turning part.
+    _paint(angle) {
+      const base = this._base;
+      if (!base || !this._ctx) return;
+      if (angle === undefined) angle = this._turn.angle;
+      const data = this._img.data;
+      const torch = this._torch.k > 0.004 ? this._torch : null;
+      if (torch || this._lit) {
+        if (torch) applyTorch(data, base, this._mats, torch);
+        else data.set(base.rgba);
+        paintTurn(data, data, base, this._model, this._mats, angle, torch);
+        this._ctx.putImageData(this._img, 0, 0);
+        this._lit = !!torch;
+        return;
+      }
+      const [x, y, w, h] = paintTurn(data, base.rgba, base, this._model, this._mats, angle, null);
+      this._ctx.putImageData(this._img, 0, 0, x, y, w, h);
+    }
+
+    // Turns the thumbturn / key plug to match the lock's state.
+    _setPose(pose, pending, cheer) {
+      if (!this._model) {
+        if (cheer) this._celebrate();
+        return;
+      }
+      const turn = this._turn;
+      turn.target = POSE_ANGLE[pose] || 0;
+      turn.pending = pending;
+      turn.cheer = cheer || 0;
+      const ms = this._duration();
+      turn.still = ms <= 0;
+      // The spring settles in about the configured duration, with a slight overshoot.
+      turn.rate = 4 / (0.74 * Math.max(0.12, ms / 1000));
+      if (turn.still || this._el.card.classList.contains("no-anim")) {
+        turn.angle = turn.target;
+        turn.vel = 0;
+        turn.cheer = 0;
+        if (cheer) this._arrive(cheer);
+        this._paint();
+      }
+      this._wake();
+    }
+
+    _duration() {
+      const css = getComputedStyle(this).getPropertyValue("--dlc-duration").trim();
+      const v = parseFloat(css);
+      if (isNaN(v)) return this._r.duration;
+      return /ms$/.test(css) ? v : v * 1000;
+    }
+
+    _wake() {
+      if (!this._raf && this.isConnected) {
+        this._turn.last = 0;
+        this._raf = requestAnimationFrame(this._frame);
+      }
+    }
+
+    _frame(now) {
+      this._raf = 0;
+      if (!this._el || !this._model) return;
+      const turn = this._turn;
+      const torch = this._torch;
+      const dt = turn.last ? Math.min(0.05, (now - turn.last) / 1000) : 0.016;
+      turn.last = now;
+      let busy = false;
+
+      // Spring towards the target angle.
+      const w = turn.rate;
+      const steps = Math.ceil(dt / 0.004);
+      const h = dt / steps;
+      for (let i = 0; i < steps; i++) {
+        turn.vel += (-w * w * (turn.angle - turn.target) - 2 * 0.74 * w * turn.vel) * h;
+        turn.angle += turn.vel * h;
+      }
+      const off = Math.abs(turn.angle - turn.target);
+      if (off < 0.002 && Math.abs(turn.vel) < 0.03) {
+        turn.angle = turn.target;
+        turn.vel = 0;
+      } else {
+        busy = true;
+      }
+      if (turn.cheer && off < 0.07) {
+        const cheer = turn.cheer;
+        turn.cheer = 0;
+        this._arrive(cheer);
+      }
+
+      // While the lock is working, the turn strains a little against the motor.
+      const calm = REDUCED_MOTION.matches || turn.still;
+      turn.wobble = turn.pending && !calm ? Math.min(1, turn.wobble + dt * 2.5) : Math.max(0, turn.wobble - dt * 5);
+      if (turn.wobble > 0) busy = true;
+      const shown = turn.angle + Math.sin(now / 150) * 0.055 * turn.wobble;
+
+      // A sweep of light across the lock when it lands, unless the pointer is already lighting it.
+      if (this._sweep) {
+        const t = (now - this._sweep) / 650;
+        if (t >= 1 || torch.goal > 0) {
+          this._sweep = 0;
+          if (!torch.goal) torch.k = 0;
+        } else if (t >= 0) {
+          torch.x = -100 + 200 * t;
+          torch.y = -55 + 50 * t;
+          torch.k = Math.sin(Math.PI * t) * 0.8;
+        }
+        busy = true;
+      } else {
+        const ease = 1 - Math.exp(-dt * 14);
+        torch.x += (torch.goalX - torch.x) * ease;
+        torch.y += (torch.goalY - torch.y) * ease;
+        torch.k += (torch.goal - torch.k) * (1 - Math.exp(-dt * 9));
+        if (Math.abs(torch.goal - torch.k) < 0.004) torch.k = torch.goal;
+        else busy = true;
+        if (torch.k > 0 && Math.abs(torch.goalX - torch.x) + Math.abs(torch.goalY - torch.y) > 0.3) busy = true;
+      }
+
+      this._paint(shown);
+      if (busy) this._raf = requestAnimationFrame(this._frame);
+    }
+
+    // The turn has reached its stop: a ring of light and, for a clean lock or
+    // unlock, a small jolt and a glint.
+    _arrive(cheer) {
+      this._celebrate();
+      const calm = REDUCED_MOTION.matches || this._turn.still || this._el.card.classList.contains("no-anim");
+      if (calm || cheer !== 2) return;
+      const shake = this._el.shake;
+      shake.classList.remove("thunk");
+      void shake.getBoundingClientRect();
+      shake.classList.add("thunk");
+      if (!this._torch.goal) this._sweep = performance.now();
+    }
+
+    // Points the torch at a pointer event, or switches it off.
+    _aim(ev) {
+      const canvas = this._el && this._el.canvas;
+      if (!canvas) return;
+      const torch = this._torch;
+      if (!ev) {
+        torch.goal = 0;
+      } else {
+        const box = canvas.getBoundingClientRect();
+        if (!box.width) return;
+        torch.goalX = ((ev.clientX - box.left) / box.width) * ART - HALF;
+        torch.goalY = ((ev.clientY - box.top) / box.height) * ART - HALF;
+        if (!torch.goal && torch.k < 0.01) {
+          torch.x = torch.goalX;
+          torch.y = torch.goalY;
+        }
+        torch.goal = 1;
+      }
+      this._wake();
     }
 
     _bindEvents() {
@@ -1001,8 +2099,21 @@
           this._held = true;
           this._runAction("hold");
         }, 500);
+        // The lock gives a little under the finger, and catches the light.
+        stage.classList.add("pressed");
+        this._aim(ev);
       });
-      ["pointerup", "pointerleave", "pointercancel"].forEach((t) => stage.addEventListener(t, cancelHold));
+      stage.addEventListener("pointermove", (ev) => {
+        if (ev.pointerType !== "touch" || stage.classList.contains("pressed")) this._aim(ev);
+      });
+      ["pointerup", "pointerleave", "pointercancel"].forEach((t) =>
+        stage.addEventListener(t, (ev) => {
+          cancelHold();
+          stage.classList.remove("pressed");
+          // A mouse keeps lighting the lock for as long as it hovers.
+          if (t !== "pointerup" || ev.pointerType !== "mouse") this._aim(null);
+        })
+      );
       stage.addEventListener("contextmenu", (ev) => ev.preventDefault());
 
       battery.addEventListener("click", (ev) => {
@@ -1058,7 +2169,14 @@
 
       const prev = this._displayState;
       this._displayState = raw;
-      if (prev && prev !== raw && !meta.pending) this._celebrate();
+      if (prev !== raw) {
+        // A lock that has just landed in a settled state gets a flourish
+        // once the turn arrives: 2 for a clean lock/unlock, 1 otherwise.
+        const settled = !!prev && !meta.pending && !this._quiet;
+        const clean = meta.tone === "locked" || meta.tone === "unlocked";
+        this._quiet = false;
+        this._setPose(meta.pose, !!meta.pending, settled ? (clean ? 2 : 1) : 0);
+      }
 
       if (r.hasImages) this._setImage(raw, !!meta.pending);
 
@@ -1463,7 +2581,9 @@
         };
         clearTimeout(this._pendingTimer);
         this._pendingTimer = setTimeout(() => {
+          // The lock never answered, so fall back without the flourish.
           this._clearPending();
+          this._quiet = true;
           this._sig = null;
           this._render();
         }, svc === "open" ? 10000 : 30000);
@@ -1474,6 +2594,7 @@
       const data = { entity_id: entity };
       if (this._config.code) data.code = String(this._config.code);
       Promise.resolve(hass.callService("lock", svc, data)).catch((err) => {
+        if (this._pending) this._quiet = true;
         this._clearPending();
         this._setError((err && err.message) || `Could not ${svc}`);
       });
@@ -1524,9 +2645,7 @@
     finish: "Finish",
     color: "Custom finish color",
     layout: "Layout",
-    art_size: "Illustration height (px)",
-    show_door: "Show door & bolt",
-    door_side: "Door edge (bolt side)",
+    art_size: "Lock height (px)",
     show_indicator: "Show status ring",
     show_name: "Show name",
     show_status: "Show lock status",
@@ -1559,7 +2678,7 @@
   };
 
   const HELPERS = {
-    images: "Use your own pictures instead of the built-in illustration. Enter a URL or a /local/… path (files in config/www). PNG, JPG, SVG, WebP, animated GIF, MP4 and WebM all work. Missing states fall back to the locked/unlocked image.",
+    images: "Use your own pictures instead of the built-in lock. Enter a URL or a /local/… path (files in config/www). PNG, JPG, SVG, WebP, animated GIF, MP4 and WebM all work. Missing states fall back to the locked/unlocked image.",
     battery_entity: "Leave empty to find the battery sensor on the lock's device automatically.",
     art_size: "Defaults: 190 vertical, 150 horizontal, 60 compact.",
   };
@@ -1610,21 +2729,7 @@
             ],
           },
           ...(custom ? [{ name: "color", selector: { color_rgb: {} } }] : []),
-          {
-            name: "",
-            type: "grid",
-            schema: [
-              { name: "show_door", selector: bool },
-              {
-                name: "door_side",
-                selector: select([
-                  { value: "right", label: "Right" },
-                  { value: "left", label: "Left" },
-                ]),
-              },
-              { name: "show_indicator", selector: bool },
-            ],
-          },
+          { name: "show_indicator", selector: bool },
         ],
       },
       {
@@ -1768,7 +2873,6 @@
       lock_style: Object.keys(info.styles)[0],
       view: info.view,
       finish: cssColor(config.color) ? "custom" : info.finish,
-      show_door: layout !== "compact",
       art_size: LAYOUT_ART_SIZE[layout] || LAYOUT_ART_SIZE.vertical,
     };
   }

@@ -1,6 +1,6 @@
 # Door Lock Card
 
-An animated Lovelace card for Home Assistant smart locks. It ships with built-in illustrations of the **Level Lock Pro**, the **Schlage Encode Plus** (Century and Camelot styles) and a generic deadbolt. The thumbturn rotates, the bolt slides into the strike, and the keypad lights up. You can also swap in your own images, GIFs or videos for each lock state.
+An animated Lovelace card for Home Assistant smart locks. It draws the **Level Lock Pro**, the **Schlage Encode Plus** (Century and Camelot styles) and a generic deadbolt as lit renders, modelled on the real hardware, in any finish. The thumbturn turns with the light playing across it, the keypad wakes when you reach for it, and the lock catches the light as your pointer moves over it. You can also swap in your own images, GIFs or videos for each lock state.
 
 ![Lock and unlock animation](docs/animation.gif)
 
@@ -9,8 +9,10 @@ An animated Lovelace card for Home Assistant smart locks. It ships with built-in
 
 ## Features
 
-- **Animated illustrations**: the thumbturn or keyway rotates, the bolt slides across the door gap, and the status ring and glow change color. While a lock is locking or unlocking, a marching ring and pulsing keypad show it's in progress. A jammed lock shakes.
-- **Lock models, styles and views**: Level Lock Pro, Schlage Encode Plus (Century / Camelot) and a generic deadbolt (round / square). Each one can show the outside (exterior) or inside (interior) of the door.
+- **Rendered, not drawn**: each lock is modelled on the manufacturer's product photos (the Level's sloped bezel, glass face and grip-bar knob; the Schlage's bevelled plate, outlined keypad and tapered lever) and lit by a small studio rig, so brushed nickel, polished brass and matte black each reflect light the way the material does. Nothing is a picture file, so it stays sharp at any size.
+- **Made to be touched**: the thumbturn or key plug turns on a spring and lands with a small jolt, a ring of light and a glint. The lock presses in under your finger, and on a desktop the highlights follow your pointer. The Schlage keypad wakes when you reach for it and flashes when the lock confirms.
+- **Clear status**: a fine glowing ring, and the lock key on the Schlage keypad, change color with the state. While a lock is locking or unlocking, a marching ring and a pulsing keypad show it's in progress. A jammed lock shakes.
+- **Lock models, styles and views**: Level Lock Pro, Schlage Encode Plus (Century / Camelot) and a generic deadbolt (round / square). Each one can show the outside (exterior) or inside (interior).
 - **Finishes and colors**: matte black, satin nickel, satin chrome, bright chrome, aged bronze, polished brass, satin brass, black stainless and white, or any custom color. The locked, unlocked, pending and jammed colors can all be changed.
 - **Custom images**: give an image for each state (PNG, JPG, SVG, WebP, animated GIF, MP4 or WebM). Images change with a fade, slide, zoom or flip.
 - **Battery level**: found automatically from the lock's device (or set it yourself). Turns amber when the battery is getting low and red when it's low.
@@ -18,7 +20,7 @@ An animated Lovelace card for Home Assistant smart locks. It ships with built-in
 - **Last changed**: shown as relative time ("5 minutes ago"), clock time, or both. It also shows `changed_by` (for example "Keypad") when the integration reports it.
 - **Instant feedback**: the card starts animating the moment you tap, even for cloud locks that take a few seconds to report back.
 - **Optional confirmation**: "Tap again to unlock" before unlocking, locking, or both.
-- **Three layouts**: vertical, horizontal and compact. Supports left-hand doors, dark mode, the sections view and the visual editor.
+- **Three layouts**: vertical, horizontal and compact. Supports dark mode, the sections view and the visual editor.
 - No dependencies and no build step: it's a single JavaScript file.
 
 ## Installation
@@ -86,10 +88,8 @@ If you leave out `lock_type`, the card guesses it from the device's manufacturer
 | `finish` | per model | `matte_black`, `satin_nickel`, `satin_chrome`, `bright_chrome`, `aged_bronze`, `polished_brass`, `satin_brass`, `black_stainless`, `white`, `custom`. |
 | `color` | | Custom finish color (`"#2060a0"`, `[32, 96, 160]` or any CSS color). Setting it implies `finish: custom`. |
 | `layout` | `vertical` | `vertical`, `horizontal` or `compact`. |
-| `art_size` | 190 / 150 / 60 | Illustration height in px (vertical / horizontal / compact). |
-| `show_door` | `true` (`false` in compact) | Draws the door, frame and sliding bolt. |
-| `door_side` | `right` | Side of the door edge where the bolt sits. Use `left` for left-hand doors. |
-| `show_indicator` | `true` | Colored status ring around the lock. |
+| `art_size` | 190 / 150 / 60 | Lock height in px (vertical / horizontal / compact). |
+| `show_indicator` | `true` | Glowing status ring around the lock. |
 | `show_name` | `true` | Show the card title. |
 | `show_status` | `true` | Show the lock state ("Locked", "Unlocking…"). |
 | `show_battery` | `true` | Show the battery chip (hidden if no battery is found). |
@@ -101,15 +101,18 @@ If you leave out `lock_type`, the card guesses it from the device's manufacturer
 | `show_buttons` | `false` | Lock / Unlock buttons (plus Open if the lock supports it). |
 | `confirm` | `none` | `none`, `unlock`, `lock` or `both`. Requires a second tap within 4 s. |
 | `code` | | Code sent with lock/unlock calls, for locks that need one. |
-| `animation_duration` | `700` | Transition length in ms. Set `0` to turn animations off. |
+| `animation_duration` | `700` | How long the lock takes to turn, in ms. Set `0` to turn animations off. |
 | `tap_action` | `toggle` | Any [standard action](https://www.home-assistant.io/dashboards/actions/). `toggle` locks or unlocks. |
 | `hold_action` | `more-info` | Standard action. |
 | `double_tap_action` | `none` | Standard action. |
 | `locked_color` / `unlocked_color` / `pending_color` / `jammed_color` / `unavailable_color` | theme | Status colors. Default to Home Assistant's lock state colors. |
-| `door_color` / `frame_color` | subtle tint | Colors of the door and frame in the illustration. |
 | `images` | | Per-state images (see below). |
 | `image_transition` | `fade` | `fade`, `slide`, `zoom`, `flip` or `none`. |
 | `image_fit` | `contain` | `contain`, `cover`, `fill` or `scale-down`. |
+
+### Upgrading from 1.x
+
+Version 2 shows the lock on its own, so the door, frame and sliding bolt are gone. `show_door`, `door_side`, `door_color` and `frame_color` are no longer used; you can leave them in your YAML (they are ignored) or delete them.
 
 ## Custom images
 
@@ -130,7 +133,7 @@ image_transition: flip
 - Only `locked` and `unlocked` are needed. A state without an image falls back to the nearest match: `locking` uses `locked` (with a pulse), `unlocking` uses `unlocked`, `open` uses `unlocked`, and `jammed` uses `unlocked` (with a shake). States with images: `locked`, `unlocked`, `locking`, `unlocking`, `jammed`, `open`, `opening`, `unavailable`.
 - **Videos** (`.mp4`, `.webm`, `.mov`) play muted. In the in-between states they loop. In the final states they play once and stop on the last frame. A short clip of your own lock turning makes a nice effect.
 - **Animated GIFs** and animated SVGs play as normal.
-- When images are set, they replace the built-in illustration. Name, status, battery and last changed still show as usual.
+- When images are set, they replace the built-in lock. Name, status, battery and last changed still show as usual.
 
 ## Notes for Level and Schlage owners
 
@@ -148,19 +151,19 @@ card_mod:
     :host {
       --dlc-locked: #00bfa5;
       --dlc-unlocked: #ff7043;
-      --dlc-door-color: rgba(120, 80, 40, .25);
+      --dlc-duration: 500ms;
     }
 ```
 
-Available: `--dlc-locked`, `--dlc-unlocked`, `--dlc-pending`, `--dlc-jammed`, `--dlc-unavailable`, `--dlc-door-color`, `--dlc-frame-color`, `--dlc-duration`. The card also respects `prefers-reduced-motion`: it turns off looping, pulsing and shaking animations but keeps the short transitions.
+Available: `--dlc-locked`, `--dlc-unlocked`, `--dlc-pending`, `--dlc-jammed`, `--dlc-unavailable`, `--dlc-duration`. The card also respects `prefers-reduced-motion`: it turns off looping, pulsing and shaking animations but keeps the short transitions.
 
 ## Demo
 
-Open `demo/index.html` in a browser to try every model, style, finish and layout against a simulated Home Assistant. You can tap the illustrations, switch states and toggle dark mode. No Home Assistant install is needed.
+Open `demo/index.html` in a browser to try every model, style, finish and layout against a simulated Home Assistant. You can tap the locks, switch states and toggle dark mode. No Home Assistant install is needed.
 
 ## Disclaimer
 
-This project is not affiliated with or endorsed by Level Home or Allegion/Schlage. Product names are used only to describe which hardware the illustrations represent. The illustrations are stylized, not exact product renders.
+This project is not affiliated with or endorsed by Level Home or Allegion/Schlage. Product names are used only to describe which hardware the renders represent. The locks are generated by the card itself; they are not the manufacturers' product images and don't reproduce every detail of the hardware.
 
 ## License
 
